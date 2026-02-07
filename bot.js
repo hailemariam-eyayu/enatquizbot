@@ -202,16 +202,24 @@ bot.onText(/📊 View Results/, async (msg) => {
     return bot.sendMessage(chatId, '❌ Only admins can view results.');
   }
   
-  const exams = await dbAll('SELECT * FROM exams WHERE created_by = ? AND status = ?', [userId, 'ended']);
+  // Show ALL ended exams (not just created by this admin)
+  const exams = await dbAll('SELECT * FROM exams WHERE status = ? ORDER BY created_at DESC', ['ended']);
   
   if (exams.length === 0) {
     return bot.sendMessage(chatId, '❌ No ended exams yet.');
   }
   
-  const buttons = exams.map(exam => [{
-    text: exam.name,
-    callback_data: `results_${exam.id}`
-  }]);
+  const buttons = exams.map(exam => {
+    // Get creator info
+    const creatorId = exam.created_by;
+    const isOwner = creatorId === userId;
+    const ownerLabel = isOwner ? ' (You)' : ` (Admin: ${creatorId})`;
+    
+    return [{
+      text: `${exam.name}${ownerLabel}`,
+      callback_data: `results_${exam.id}`
+    }];
+  });
   
   bot.sendMessage(chatId, '📊 Select exam to view results:', {
     reply_markup: { inline_keyboard: buttons }
@@ -919,7 +927,11 @@ bot.on('callback_query', async (query) => {
       return a.firstAnswerTime - b.firstAnswerTime;
     });
     
-    let message = `📊 *Results for "${exam.name}"*\n\n`;
+    // Show creator info
+    const creatorInfo = exam.created_by === userId ? 'You' : `Admin ID: ${exam.created_by}`;
+    
+    let message = `📊 *Results for "${exam.name}"*\n`;
+    message += `👤 Created by: ${creatorInfo}\n\n`;
     message += `👥 Participants: ${results.length}\n`;
     message += `❓ Questions: ${questions.length}\n\n`;
     message += `🏆 *Leaderboard:*\n\n`;
