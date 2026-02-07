@@ -1,0 +1,123 @@
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                     TELEGRAM QUIZ BOT - SAMPLE QUESTIONS                     ║
+║                          Format Template & Examples                          ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+📋 FORMAT RULES:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  • Start each question with: NUMBER. (e.g., 1., 2., 3.)
+  • Options must start with: LETTER. (e.g., A., B., C., D.)
+  • Answer line: Ans: LETTER (e.g., Ans: A)
+  • Explanation line: Explain: YOUR_EXPLANATION (optional)
+  • Leave a BLANK LINE between questions
+  • Minimum 2 options per question
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📝 EXAMPLE QUESTIONS:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. What is the capital city of Ethiopia?
+A. Addis Ababa
+B. Nairobi
+C. Cairo
+D. Lagos
+Ans: A
+Explain: Addis Ababa is the capital and largest city of Ethiopia, located in the central highlands.
+
+2. Which year did Ethiopia adopt its current constitution?
+A. 1991
+B. 1995
+C. 2000
+D. 2005
+Ans: B
+Explain: The Federal Democratic Republic of Ethiopia Constitution was adopted in 1995.
+
+3. What is the result of 15 + 27?
+A. 40
+B. 41
+C. 42
+D. 43
+Ans: C
+Explain: Simple addition: 15 + 27 = 42
+
+4. Who is known as the father of modern computing?
+A. Steve Jobs
+B. Bill Gates
+C. Alan Turing
+D. Mark Zuckerberg
+Ans: C
+Explain: Alan Turing is widely considered the father of theoretical computer science and artificial intelligence. He developed the Turing machine concept.
+
+5. What is the largest planet in our solar system?
+A. Earth
+B. Mars
+C. Jupiter
+D. Saturn
+Ans: C
+Explain: Jupiter is the largest planet in our solar system, with a mass more than twice that of all other planets combined.
+
+6. Which programming language is known for web development?
+A. Python
+B. JavaScript
+C. C++
+D. Assembly
+Ans: B
+Explain: JavaScript is the primary language for client-side web development and runs in web browsers.
+
+7. What does HTTP stand for?
+A. HyperText Transfer Protocol
+B. High Transfer Text Protocol
+C. HyperText Transmission Process
+D. High Tech Transfer Protocol
+Ans: A
+Explain: HTTP (HyperText Transfer Protocol) is the foundation of data communication on the World Wide Web.
+
+8. Which continent is Ethiopia located in?
+A. Asia
+B. Europe
+C. Africa
+D. South America
+Ans: C
+Explain: Ethiopia is located in the Horn of Africa, in the eastern part of the African continent.
+
+9. What is the square root of 144?
+A. 10
+B. 11
+C. 12
+D. 13
+Ans: C
+Explain: The square root of 144 is 12, because 12 × 12 = 144.
+
+10. Which of the following is a relational database?
+A. MongoDB
+B. Redis
+C. PostgreSQL
+D. Cassandra
+Ans: C
+Explain: PostgreSQL is a powerful, open-source relational database management system (RDBMS).
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+✅ TIPS FOR CREATING QUESTIONS:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ✓ Keep questions clear and concise
+  ✓ Ensure only ONE correct answer per question
+  ✓ Make distractors (wrong answers) plausible
+  ✓ Add explanations to help users learn
+  ✓ Test your file before uploading to exam
+  ✓ Use consistent formatting throughout
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📤 HOW TO UPLOAD:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  1. Click "📤 Upload Questions" in the bot
+  2. Select your exam (must be in pending status)
+  3. Send this .txt file
+  4. Bot will process and add all questions
+  5. You'll see a success message with count
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                    Ready to create your own questions?                       ║
+║              Copy this format and replace with your content!                 ║
+╚══════════════════════════════════════════════════════════════════════════════╝
