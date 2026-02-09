@@ -8,35 +8,67 @@ let db;
 
 // Helper functions for database operations
 const dbRun = (sql, params = []) => {
-  const stmt = db.prepare(sql);
-  stmt.bind(params);
-  stmt.step();
-  const lastID = db.exec('SELECT last_insert_rowid() as id')[0]?.values[0]?.[0] || 0;
-  stmt.free();
-  saveDatabase();
-  return { lastID };
+  try {
+    // Filter out undefined values and log warning
+    const cleanParams = params.map((p, idx) => {
+      if (p === undefined) {
+        console.error(`Warning: Parameter ${idx} is undefined in SQL: ${sql}`);
+        return null; // Convert undefined to null
+      }
+      return p;
+    });
+    
+    const stmt = db.prepare(sql);
+    stmt.bind(cleanParams);
+    stmt.step();
+    const lastID = db.exec('SELECT last_insert_rowid() as id')[0]?.values[0]?.[0] || 0;
+    stmt.free();
+    saveDatabase();
+    return { lastID };
+  } catch (err) {
+    console.error('Database error in dbRun:', err);
+    console.error('SQL:', sql);
+    console.error('Params:', params);
+    throw err;
+  }
 };
 
 const dbGet = (sql, params = []) => {
-  const stmt = db.prepare(sql);
-  stmt.bind(params);
-  let result = null;
-  if (stmt.step()) {
-    result = stmt.getAsObject();
+  try {
+    const cleanParams = params.map(p => p === undefined ? null : p);
+    const stmt = db.prepare(sql);
+    stmt.bind(cleanParams);
+    let result = null;
+    if (stmt.step()) {
+      result = stmt.getAsObject();
+    }
+    stmt.free();
+    return result;
+  } catch (err) {
+    console.error('Database error in dbGet:', err);
+    console.error('SQL:', sql);
+    console.error('Params:', params);
+    throw err;
   }
-  stmt.free();
-  return result;
 };
 
 const dbAll = (sql, params = []) => {
-  const stmt = db.prepare(sql);
-  stmt.bind(params);
-  const results = [];
-  while (stmt.step()) {
-    results.push(stmt.getAsObject());
+  try {
+    const cleanParams = params.map(p => p === undefined ? null : p);
+    const stmt = db.prepare(sql);
+    stmt.bind(cleanParams);
+    const results = [];
+    while (stmt.step()) {
+      results.push(stmt.getAsObject());
+    }
+    stmt.free();
+    return results;
+  } catch (err) {
+    console.error('Database error in dbAll:', err);
+    console.error('SQL:', sql);
+    console.error('Params:', params);
+    throw err;
   }
-  stmt.free();
-  return results;
 };
 
 let bot;
