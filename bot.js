@@ -157,6 +157,45 @@ bot.onText(/\/menu/, async (msg) => {
   });
 });
 
+// Authorize group command (in group)
+bot.onText(/\/authorize/, async (msg) => {
+  const chatId = msg.chat.id;
+  const userId = msg.from.id;
+  const isGroup = msg.chat.type === 'group' || msg.chat.type === 'supergroup';
+  
+  if (!isGroup) {
+    return bot.sendMessage(chatId, '❌ This command only works in groups.');
+  }
+  
+  if (!isSuperAdmin(userId)) {
+    return bot.sendMessage(chatId, '❌ Only the super admin can authorize groups.');
+  }
+  
+  // Check if already authorized
+  const existing = await dbGet('SELECT * FROM authorized_groups WHERE group_id = ?', [chatId]);
+  
+  if (existing) {
+    return bot.sendMessage(chatId, '✅ This group is already authorized!');
+  }
+  
+  // Add group
+  await dbRun(
+    'INSERT INTO authorized_groups (group_id, group_name, added_by) VALUES (?, ?, ?)',
+    [chatId, msg.chat.title, userId]
+  );
+  
+  bot.sendMessage(chatId, 
+    '✅ *Group Authorized!*\n\n' +
+    'This group can now use the quiz bot.\n\n' +
+    'Members can:\n' +
+    '• View active exams\n' +
+    '• Take exams\n' +
+    '• View their results\n\n' +
+    'Use /start to begin!',
+    { parse_mode: 'Markdown' }
+  );
+});
+
 // Create Exam (Admin only)
 bot.onText(/📝 Create Exam/, async (msg) => {
   const chatId = msg.chat.id;
