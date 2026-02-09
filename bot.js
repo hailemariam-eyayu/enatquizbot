@@ -1385,7 +1385,7 @@ bot.on('callback_query', async (query) => {
     // Add participant
     await dbRun(
       'INSERT OR IGNORE INTO participants (user_id, exam_id, username, first_name) VALUES (?, ?, ?, ?)',
-      [userId, examId, query.from.username, query.from.first_name]
+      [userId, examId, query.from.username || null, query.from.first_name || null]
     );
     
     bot.sendMessage(chatId, `✅ Joined exam! Sending ${questions.length} questions...\n\n⚠️ Answer carefully - you won't see results until the exam ends.`);
