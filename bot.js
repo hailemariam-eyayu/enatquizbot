@@ -913,6 +913,65 @@ bot.on('callback_query', async (query) => {
     }
   }
   
+  // Group: Active Exams
+  else if (data === 'group_active_exams') {
+    const isGroup = query.message.chat.type === 'group' || query.message.chat.type === 'supergroup';
+    
+    if (!isGroup) {
+      return bot.sendMessage(chatId, '❌ This feature only works in groups.');
+    }
+    
+    // Check if group is authorized
+    const authorized = await dbGet('SELECT * FROM authorized_groups WHERE group_id = ?', [chatId]);
+    
+    if (!authorized) {
+      return bot.sendMessage(chatId, '❌ This group is not authorized.');
+    }
+    
+    // Get active exams for this group or all groups
+    const exams = await dbAll('SELECT * FROM exams WHERE status = ? AND (group_id = ? OR group_id IS NULL)', ['active', chatId]);
+    
+    if (exams.length === 0) {
+      return bot.sendMessage(chatId, '📚 No active exams at the moment.');
+    }
+    
+    const buttons = exams.map(exam => [{
+      text: exam.name,
+      callback_data: `join_exam_${exam.id}`
+    }]);
+    
+    bot.sendMessage(chatId, '📚 Select an exam to join:', {
+      reply_markup: { inline_keyboard: buttons }
+    });
+  }
+  
+  // Group: My Results
+  else if (data === 'group_my_results') {
+    const isGroup = query.message.chat.type === 'group' || query.message.chat.type === 'supergroup';
+    
+    if (!isGroup) {
+      return bot.sendMessage(chatId, '❌ This feature only works in groups.');
+    }
+    
+    const exams = await dbAll(
+      'SELECT DISTINCT e.* FROM exams e JOIN participants p ON e.id = p.exam_id WHERE p.user_id = ? AND e.status = ?',
+      [userId, 'ended']
+    );
+    
+    if (exams.length === 0) {
+      return bot.sendMessage(chatId, '📈 No completed exams yet.');
+    }
+    
+    const buttons = exams.map(exam => [{
+      text: exam.name,
+      callback_data: `my_result_${exam.id}`
+    }]);
+    
+    bot.sendMessage(chatId, '📈 Select exam to view your results:', {
+      reply_markup: { inline_keyboard: buttons }
+    });
+  }
+  
   // Confirm remove admin
   else if (data.startsWith('confirm_remove_admin_')) {
     const adminId = parseInt(data.split('_')[3]);
