@@ -1360,8 +1360,8 @@ bot.on('callback_query', async (query) => {
     for (const q of questions) {
       const options = JSON.parse(q.options);
       const pollMsg = await bot.sendPoll(chatId, q.question_text, options, {
-        type: 'regular',  // Changed from 'quiz' to 'regular'
-        is_anonymous: false,
+        type: 'regular',  // Regular poll (not quiz)
+        is_anonymous: true,  // Hide who voted for what
         allows_multiple_answers: false
       });
       
