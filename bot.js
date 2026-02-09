@@ -62,12 +62,24 @@ let bot;
 
 function setupBot() {
 const ADMIN_IDS = process.env.ADMIN_IDS.split(',').map(id => parseInt(id.trim()));
+const SUPER_ADMIN_ID = ADMIN_IDS[0]; // First admin in .env is super admin
 
 // User state management
 const userStates = {};
 
 // Helper functions
-const isAdmin = (userId) => ADMIN_IDS.includes(userId);
+const isAdmin = async (userId) => {
+  // Check if user is in .env ADMIN_IDS (super admin)
+  if (ADMIN_IDS.includes(userId)) return true;
+  
+  // Check if user is in database admins table
+  const admin = await dbGet('SELECT * FROM admins WHERE user_id = ?', [userId]);
+  return admin !== null;
+};
+
+const isSuperAdmin = (userId) => {
+  return userId === SUPER_ADMIN_ID;
+};
 
 const getMainMenu = async (userId) => {
   const admin = await isAdmin(userId);
