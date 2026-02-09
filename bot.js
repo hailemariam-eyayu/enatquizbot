@@ -69,13 +69,17 @@ const userStates = {};
 // Helper functions
 const isAdmin = (userId) => ADMIN_IDS.includes(userId);
 
-const getMainMenu = (userId) => {
-  const keyboard = isAdmin(userId) 
+const getMainMenu = async (userId) => {
+  const admin = await isAdmin(userId);
+  const superAdmin = isSuperAdmin(userId);
+  
+  const keyboard = admin
     ? [
         [{ text: '📝 Create Exam' }, { text: '📋 My Exams' }],
         [{ text: '▶️ Start Exam' }, { text: '⏹️ End Exam' }],
         [{ text: '📊 View Results' }, { text: '✏️ Edit Questions' }],
-        [{ text: '📤 Upload Questions' }, { text: '🗑️ Delete Exam' }]
+        [{ text: '📤 Upload Questions' }, { text: '🗑️ Delete Exam' }],
+        ...(superAdmin ? [[{ text: '👥 Manage Admins' }]] : [])
       ]
     : [
         [{ text: '📚 Active Exams' }, { text: '📈 My Results' }]
@@ -85,23 +89,27 @@ const getMainMenu = (userId) => {
 };
 
 // Start command
-bot.onText(/\/start/, (msg) => {
+bot.onText(/\/start/, async (msg) => {
   const chatId = msg.chat.id;
   const userId = msg.from.id;
   
+  const admin = await isAdmin(userId);
+  const menu = await getMainMenu(userId);
+  
   bot.sendMessage(chatId, 
-    `Welcome to Quiz Bot! 🎓\n\n${isAdmin(userId) ? 'You are an Admin.' : 'You are a User.'}\n\nUse the menu below to navigate.`,
-    { reply_markup: getMainMenu(userId) }
+    `Welcome to Quiz Bot! 🎓\n\n${admin ? 'You are an Admin.' : 'You are a User.'}\n\nUse the menu below to navigate.`,
+    { reply_markup: menu }
   );
 });
 
 // Menu command
-bot.onText(/\/menu/, (msg) => {
+bot.onText(/\/menu/, async (msg) => {
   const chatId = msg.chat.id;
   const userId = msg.from.id;
   
+  const menu = await getMainMenu(userId);
   bot.sendMessage(chatId, '📱 Main Menu', {
-    reply_markup: getMainMenu(userId)
+    reply_markup: menu
   });
 });
 
@@ -329,7 +337,7 @@ bot.onText(/📤 Upload Questions/, async (msg) => {
   const chatId = msg.chat.id;
   const userId = msg.from.id;
   
-  if (!isAdmin(userId)) {
+  if (!(await isAdmin(userId))) {
     return bot.sendMessage(chatId, '❌ Only admins can upload questions.');
   }
   
@@ -345,6 +353,41 @@ bot.onText(/📤 Upload Questions/, async (msg) => {
   }]);
   
   bot.sendMessage(chatId, '📤 Select exam to upload questions:', {
+    reply_markup: { inline_keyboard: buttons }
+  });
+});
+
+// Manage Admins (Super Admin only)
+bot.onText(/👥 Manage Admins/, async (msg) => {
+  const chatId = msg.chat.id;
+  const userId = msg.from.id;
+  
+  if (!isSuperAdmin(userId)) {
+    return bot.sendMessage(chatId, '❌ Only the super admin can manage admins.');
+  }
+  
+  const admins = await dbAll('SELECT * FROM admins ORDER BY added_at DESC');
+  
+  let message = '👥 *Admin Management*\n\n';
+  message += `🔑 Super Admin: You (${userId})\n\n`;
+  
+  if (admins.length > 0) {
+    message += '*Other Admins:*\n';
+    admins.forEach((admin, idx) => {
+      message += `${idx + 1}. ${admin.first_name || admin.username || 'User'} (${admin.user_id})\n`;
+    });
+  } else {
+    message += '_No other admins yet._\n';
+  }
+  
+  const buttons = [
+    [{ text: '➕ Add Admin', callback_data: 'add_admin' }],
+    ...(admins.length > 0 ? [[{ text: '➖ Remove Admin', callback_data: 'remove_admin' }]] : []),
+    [{ text: '« Back', callback_data: 'back_to_menu' }]
+  ];
+  
+  bot.sendMessage(chatId, message, {
+    parse_mode: 'Markdown',
     reply_markup: { inline_keyboard: buttons }
   });
 });
@@ -518,6 +561,63 @@ bot.on('message', async (msg) => {
     
     delete userStates[userId];
   }
+  
+  // Add admin flow
+  if (state.action === 'add_admin') {
+    const newAdminId = parseInt(msg.text);
+    
+    if (isNaN(newAdminId)) {
+      return bot.sendMessage(chatId, '❌ Invalid user ID. Please send a valid number.');
+    }
+    
+    if (ADMIN_IDS.includes(newAdminId)) {
+      return bot.sendMessage(chatId, '❌ This user is already a super admin.');
+    }
+    
+    const existingAdmin = await dbGet('SELECT * FROM admins WHERE user_id = ?', [newAdminId]);
+    
+    if (existingAdmin) {
+      return bot.sendMessage(chatId, '❌ This user is already an admin.');
+    }
+    
+    // Try to get user info
+    try {
+      const userInfo = await bot.getChat(newAdminId);
+      
+      await dbRun(
+        'INSERT INTO admins (user_id, username, first_name, added_by) VALUES (?, ?, ?, ?)',
+        [newAdminId, userInfo.username, userInfo.first_name, userId]
+      );
+      
+      bot.sendMessage(chatId, `✅ Admin added successfully!\n\nUser: ${userInfo.first_name || userInfo.username || newAdminId}`);
+      
+      // Notify the new admin
+      try {
+        const menu = await getMainMenu(newAdminId);
+        bot.sendMessage(newAdminId, 
+          '🎉 Congratulations! You have been added as an admin.\n\nUse /start to see your admin menu.',
+          { reply_markup: menu }
+        );
+      } catch (err) {
+        bot.sendMessage(chatId, '⚠️ Admin added but could not notify them. They need to start the bot first.');
+      }
+      
+    } catch (err) {
+      // User not found or bot blocked
+      await dbRun(
+        'INSERT INTO admins (user_id, username, first_name, added_by) VALUES (?, ?, ?, ?)',
+        [newAdminId, null, null, userId]
+      );
+      
+      bot.sendMessage(chatId, 
+        `✅ Admin added successfully!\n\n` +
+        `User ID: ${newAdminId}\n\n` +
+        `⚠️ Note: Could not fetch user info. They need to start the bot to see admin features.`
+      );
+    }
+    
+    delete userStates[userId];
+  }
 });
 
 // Callback query handler
@@ -599,9 +699,75 @@ bot.on('callback_query', async (query) => {
   
   // Back to menu
   else if (data === 'back_to_menu') {
+    const menu = await getMainMenu(userId);
     bot.sendMessage(chatId, '👍 Back to main menu', {
-      reply_markup: getMainMenu(userId)
+      reply_markup: menu
     });
+  }
+  
+  // Add admin
+  else if (data === 'add_admin') {
+    if (!isSuperAdmin(userId)) {
+      return bot.sendMessage(chatId, '❌ Only super admin can add admins.');
+    }
+    
+    userStates[userId] = { action: 'add_admin' };
+    bot.sendMessage(chatId, 
+      '➕ *Add New Admin*\n\n' +
+      'Send the user ID of the person you want to make admin.\n\n' +
+      '_Tip: Ask them to message @userinfobot to get their user ID._',
+      { parse_mode: 'Markdown' }
+    );
+  }
+  
+  // Remove admin
+  else if (data === 'remove_admin') {
+    if (!isSuperAdmin(userId)) {
+      return bot.sendMessage(chatId, '❌ Only super admin can remove admins.');
+    }
+    
+    const admins = await dbAll('SELECT * FROM admins ORDER BY added_at DESC');
+    
+    if (admins.length === 0) {
+      return bot.sendMessage(chatId, '❌ No admins to remove.');
+    }
+    
+    const buttons = admins.map(admin => [{
+      text: `${admin.first_name || admin.username || 'User'} (${admin.user_id})`,
+      callback_data: `confirm_remove_admin_${admin.user_id}`
+    }]);
+    
+    buttons.push([{ text: '« Back', callback_data: 'back_to_menu' }]);
+    
+    bot.sendMessage(chatId, '➖ Select admin to remove:', {
+      reply_markup: { inline_keyboard: buttons }
+    });
+  }
+  
+  // Confirm remove admin
+  else if (data.startsWith('confirm_remove_admin_')) {
+    const adminId = parseInt(data.split('_')[3]);
+    
+    if (!isSuperAdmin(userId)) {
+      return bot.sendMessage(chatId, '❌ Only super admin can remove admins.');
+    }
+    
+    const admin = await dbGet('SELECT * FROM admins WHERE user_id = ?', [adminId]);
+    
+    if (!admin) {
+      return bot.sendMessage(chatId, '❌ Admin not found.');
+    }
+    
+    dbRun('DELETE FROM admins WHERE user_id = ?', [adminId]);
+    
+    bot.sendMessage(chatId, `✅ Admin ${admin.first_name || admin.username || adminId} removed successfully!`);
+    
+    // Notify the removed admin
+    try {
+      bot.sendMessage(adminId, '⚠️ You have been removed as an admin.');
+    } catch (err) {
+      // User might have blocked the bot
+    }
   }
   
   // Select exam to upload questions

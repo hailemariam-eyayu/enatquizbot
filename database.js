@@ -67,6 +67,17 @@ async function initDatabase() {
     )
   `);
 
+  db.run(`
+    CREATE TABLE IF NOT EXISTS admins (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL UNIQUE,
+      username TEXT,
+      first_name TEXT,
+      added_by INTEGER NOT NULL,
+      added_at INTEGER DEFAULT (strftime('%s', 'now'))
+    )
+  `);
+
   return db;
 }
 
