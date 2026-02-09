@@ -23,6 +23,7 @@ async function initDatabase() {
       end_time INTEGER,
       status TEXT DEFAULT 'pending',
       created_by INTEGER NOT NULL,
+      group_id INTEGER,
       created_at INTEGER DEFAULT (strftime('%s', 'now'))
     )
   `);
@@ -73,6 +74,16 @@ async function initDatabase() {
       user_id INTEGER NOT NULL UNIQUE,
       username TEXT,
       first_name TEXT,
+      added_by INTEGER NOT NULL,
+      added_at INTEGER DEFAULT (strftime('%s', 'now'))
+    )
+  `);
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS authorized_groups (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      group_id INTEGER NOT NULL UNIQUE,
+      group_name TEXT,
       added_by INTEGER NOT NULL,
       added_at INTEGER DEFAULT (strftime('%s', 'now'))
     )

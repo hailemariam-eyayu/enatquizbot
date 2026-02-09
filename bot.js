@@ -81,7 +81,17 @@ const isSuperAdmin = (userId) => {
   return userId === SUPER_ADMIN_ID;
 };
 
-const getMainMenu = async (userId) => {
+const getMainMenu = async (userId, isGroup = false) => {
+  if (isGroup) {
+    // In groups, only show user options
+    return {
+      inline_keyboard: [
+        [{ text: '📚 Active Exams', callback_data: 'group_active_exams' }],
+        [{ text: '📈 My Results', callback_data: 'group_my_results' }]
+      ]
+    };
+  }
+  
   const admin = await isAdmin(userId);
   const superAdmin = isSuperAdmin(userId);
   
@@ -91,7 +101,7 @@ const getMainMenu = async (userId) => {
         [{ text: '▶️ Start Exam' }, { text: '⏹️ End Exam' }],
         [{ text: '📊 View Results' }, { text: '✏️ Edit Questions' }],
         [{ text: '📤 Upload Questions' }, { text: '🗑️ Delete Exam' }],
-        ...(superAdmin ? [[{ text: '👥 Manage Admins' }]] : [])
+        ...(superAdmin ? [[{ text: '👥 Manage Admins' }, { text: '👥 Manage Groups' }]] : [])
       ]
     : [
         [{ text: '📚 Active Exams' }, { text: '📈 My Results' }]
@@ -104,22 +114,44 @@ const getMainMenu = async (userId) => {
 bot.onText(/\/start/, async (msg) => {
   const chatId = msg.chat.id;
   const userId = msg.from.id;
+  const isGroup = msg.chat.type === 'group' || msg.chat.type === 'supergroup';
   
-  const admin = await isAdmin(userId);
-  const menu = await getMainMenu(userId);
-  
-  bot.sendMessage(chatId, 
-    `Welcome to Quiz Bot! 🎓\n\n${admin ? 'You are an Admin.' : 'You are a User.'}\n\nUse the menu below to navigate.`,
-    { reply_markup: menu }
-  );
+  if (isGroup) {
+    // Check if group is authorized
+    const authorized = await dbGet('SELECT * FROM authorized_groups WHERE group_id = ?', [chatId]);
+    
+    if (!authorized) {
+      return bot.sendMessage(chatId, 
+        '⚠️ This group is not authorized to use this bot.\n\n' +
+        'Contact the bot admin to authorize this group.'
+      );
+    }
+    
+    const menu = await getMainMenu(userId, true);
+    bot.sendMessage(chatId, 
+      '📚 *Quiz Bot - Group Mode*\n\n' +
+      'Use the buttons below to access exams:',
+      { parse_mode: 'Markdown', reply_markup: menu }
+    );
+  } else {
+    // Private chat
+    const admin = await isAdmin(userId);
+    const menu = await getMainMenu(userId);
+    
+    bot.sendMessage(chatId, 
+      `Welcome to Quiz Bot! 🎓\n\n${admin ? 'You are an Admin.' : 'You are a User.'}\n\nUse the menu below to navigate.`,
+      { reply_markup: menu }
+    );
+  }
 });
 
 // Menu command
 bot.onText(/\/menu/, async (msg) => {
   const chatId = msg.chat.id;
   const userId = msg.from.id;
+  const isGroup = msg.chat.type === 'group' || msg.chat.type === 'supergroup';
   
-  const menu = await getMainMenu(userId);
+  const menu = await getMainMenu(userId, isGroup);
   bot.sendMessage(chatId, '📱 Main Menu', {
     reply_markup: menu
   });
@@ -369,7 +401,43 @@ bot.onText(/📤 Upload Questions/, async (msg) => {
   });
 });
 
-// Manage Admins (Super Admin only)
+// Manage Groups (Super Admin only)
+bot.onText(/👥 Manage Groups/, async (msg) => {
+  const chatId = msg.chat.id;
+  const userId = msg.from.id;
+  
+  if (!isSuperAdmin(userId)) {
+    return bot.sendMessage(chatId, '❌ Only the super admin can manage groups.');
+  }
+  
+  const groups = await dbAll('SELECT * FROM authorized_groups ORDER BY added_at DESC');
+  
+  let message = '👥 *Group Management*\n\n';
+  
+  if (groups.length > 0) {
+    message += '*Authorized Groups:*\n';
+    groups.forEach((group, idx) => {
+      message += `${idx + 1}. ${group.group_name || 'Unknown'} (${group.group_id})\n`;
+    });
+  } else {
+    message += '_No authorized groups yet._\n';
+  }
+  
+  message += '\n*How to authorize a group:*\n';
+  message += '1. Add this bot to your group\n';
+  message += '2. Make the bot an admin\n';
+  message += '3. Send /authorize in the group\n';
+  
+  const buttons = [
+    ...(groups.length > 0 ? [[{ text: '➖ Remove Group', callback_data: 'remove_group' }]] : []),
+    [{ text: '« Back', callback_data: 'back_to_menu' }]
+  ];
+  
+  bot.sendMessage(chatId, message, {
+    parse_mode: 'Markdown',
+    reply_markup: { inline_keyboard: buttons }
+  });
+});
 bot.onText(/👥 Manage Admins/, async (msg) => {
   const chatId = msg.chat.id;
   const userId = msg.from.id;
@@ -754,6 +822,56 @@ bot.on('callback_query', async (query) => {
     bot.sendMessage(chatId, '➖ Select admin to remove:', {
       reply_markup: { inline_keyboard: buttons }
     });
+  }
+  
+  // Remove group
+  else if (data === 'remove_group') {
+    if (!isSuperAdmin(userId)) {
+      return bot.sendMessage(chatId, '❌ Only super admin can remove groups.');
+    }
+    
+    const groups = await dbAll('SELECT * FROM authorized_groups ORDER BY added_at DESC');
+    
+    if (groups.length === 0) {
+      return bot.sendMessage(chatId, '❌ No groups to remove.');
+    }
+    
+    const buttons = groups.map(group => [{
+      text: `${group.group_name || 'Unknown'} (${group.group_id})`,
+      callback_data: `confirm_remove_group_${group.group_id}`
+    }]);
+    
+    buttons.push([{ text: '« Back', callback_data: 'back_to_menu' }]);
+    
+    bot.sendMessage(chatId, '➖ Select group to remove:', {
+      reply_markup: { inline_keyboard: buttons }
+    });
+  }
+  
+  // Confirm remove group
+  else if (data.startsWith('confirm_remove_group_')) {
+    const groupId = parseInt(data.split('_')[3]);
+    
+    if (!isSuperAdmin(userId)) {
+      return bot.sendMessage(chatId, '❌ Only super admin can remove groups.');
+    }
+    
+    const group = await dbGet('SELECT * FROM authorized_groups WHERE group_id = ?', [groupId]);
+    
+    if (!group) {
+      return bot.sendMessage(chatId, '❌ Group not found.');
+    }
+    
+    dbRun('DELETE FROM authorized_groups WHERE group_id = ?', [groupId]);
+    
+    bot.sendMessage(chatId, `✅ Group "${group.group_name}" removed successfully!`);
+    
+    // Notify the group
+    try {
+      bot.sendMessage(groupId, '⚠️ This group has been deauthorized from using the quiz bot.');
+    } catch (err) {
+      // Group might not exist or bot was removed
+    }
   }
   
   // Confirm remove admin
