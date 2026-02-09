@@ -1193,7 +1193,7 @@ bot.on('callback_query', async (query) => {
     bot.sendMessage(chatId, '💡 Enter explanation (or "-" to skip):');
   }
   
-  // Start exam
+  // Start exam - select target
   else if (data.startsWith('start_exam_')) {
     const examId = parseInt(data.split('_')[2]);
     
@@ -1203,12 +1203,106 @@ bot.on('callback_query', async (query) => {
       return bot.sendMessage(chatId, '❌ Cannot start exam without questions! Add questions first.');
     }
     
-    await dbRun('UPDATE exams SET status = ?, start_time = ? WHERE id = ?', 
-      ['active', Math.floor(Date.now() / 1000), examId]);
+    // Show target selection (groups + bot users)
+    const groups = await dbAll('SELECT * FROM authorized_groups ORDER BY group_name ASC');
+    
+    let message = '🎯 *Select where to publish this exam:*\n\n';
+    message += 'Choose one or more destinations:\n';
+    
+    const buttons = [];
+    
+    // Add "Bot Users" option
+    buttons.push([{ text: '🤖 Bot Users (Private Chat)', callback_data: `target_bot_${examId}` }]);
+    
+    // Add each group
+    groups.forEach(group => {
+      buttons.push([{ 
+        text: `👥 ${group.group_name || 'Unknown Group'}`, 
+        callback_data: `target_group_${examId}_${group.group_id}` 
+      }]);
+    });
+    
+    // Add "All" option
+    buttons.push([{ text: '🌐 All (Bot + All Groups)', callback_data: `target_all_${examId}` }]);
+    buttons.push([{ text: '« Back', callback_data: 'back_to_menu' }]);
+    
+    bot.sendMessage(chatId, message, {
+      parse_mode: 'Markdown',
+      reply_markup: { inline_keyboard: buttons }
+    });
+  }
+  
+  // Target: Bot users
+  else if (data.startsWith('target_bot_')) {
+    const examId = parseInt(data.split('_')[2]);
+    
+    await dbRun('UPDATE exams SET status = ?, start_time = ?, group_id = ? WHERE id = ?', 
+      ['active', Math.floor(Date.now() / 1000), null, examId]);
     
     const exam = await dbGet('SELECT * FROM exams WHERE id = ?', [examId]);
+    const questions = await dbAll('SELECT * FROM questions WHERE exam_id = ?', [examId]);
     
-    bot.sendMessage(chatId, `✅ Exam "${exam.name}" is now active with ${questions.length} questions!`);
+    bot.sendMessage(chatId, `✅ Exam "${exam.name}" is now active for Bot Users with ${questions.length} questions!`);
+  }
+  
+  // Target: Specific group
+  else if (data.startsWith('target_group_')) {
+    const parts = data.split('_');
+    const examId = parseInt(parts[2]);
+    const groupId = parseInt(parts[3]);
+    
+    await dbRun('UPDATE exams SET status = ?, start_time = ?, group_id = ? WHERE id = ?', 
+      ['active', Math.floor(Date.now() / 1000), groupId, examId]);
+    
+    const exam = await dbGet('SELECT * FROM exams WHERE id = ?', [examId]);
+    const group = await dbGet('SELECT * FROM authorized_groups WHERE group_id = ?', [groupId]);
+    const questions = await dbAll('SELECT * FROM questions WHERE exam_id = ?', [examId]);
+    
+    bot.sendMessage(chatId, `✅ Exam "${exam.name}" is now active in group "${group.group_name}" with ${questions.length} questions!`);
+    
+    // Notify the group
+    try {
+      const menu = await getMainMenu(userId, true);
+      bot.sendMessage(groupId, 
+        `📢 *New Exam Available!*\n\n` +
+        `📝 ${exam.name}\n` +
+        `❓ ${questions.length} questions\n\n` +
+        `Click the button below to start:`,
+        { parse_mode: 'Markdown', reply_markup: menu }
+      );
+    } catch (err) {
+      bot.sendMessage(chatId, '⚠️ Exam started but could not notify the group.');
+    }
+  }
+  
+  // Target: All
+  else if (data.startsWith('target_all_')) {
+    const examId = parseInt(data.split('_')[2]);
+    
+    await dbRun('UPDATE exams SET status = ?, start_time = ?, group_id = ? WHERE id = ?', 
+      ['active', Math.floor(Date.now() / 1000), null, examId]);
+    
+    const exam = await dbGet('SELECT * FROM exams WHERE id = ?', [examId]);
+    const questions = await dbAll('SELECT * FROM questions WHERE exam_id = ?', [examId]);
+    const groups = await dbAll('SELECT * FROM authorized_groups');
+    
+    bot.sendMessage(chatId, `✅ Exam "${exam.name}" is now active for Bot Users and ${groups.length} groups with ${questions.length} questions!`);
+    
+    // Notify all groups
+    const menu = await getMainMenu(userId, true);
+    for (const group of groups) {
+      try {
+        bot.sendMessage(group.group_id, 
+          `📢 *New Exam Available!*\n\n` +
+          `📝 ${exam.name}\n` +
+          `❓ ${questions.length} questions\n\n` +
+          `Click the button below to start:`,
+          { parse_mode: 'Markdown', reply_markup: menu }
+        );
+      } catch (err) {
+        // Group might not exist or bot was removed
+      }
+    }
   }
   
   // End exam
