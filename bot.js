@@ -1249,13 +1249,15 @@ bot.on('callback_query', async (query) => {
   else if (data.startsWith('target_group_')) {
     const parts = data.split('_');
     const examId = parseInt(parts[2]);
-    const groupId = parseInt(parts[3]);
+    // Group ID might be negative, so we need to handle it properly
+    const groupId = parts.slice(3).join('_'); // Join remaining parts in case of negative numbers
+    const groupIdNum = parseInt(groupId);
     
     await dbRun('UPDATE exams SET status = ?, start_time = ?, group_id = ? WHERE id = ?', 
-      ['active', Math.floor(Date.now() / 1000), groupId, examId]);
+      ['active', Math.floor(Date.now() / 1000), groupIdNum, examId]);
     
     const exam = await dbGet('SELECT * FROM exams WHERE id = ?', [examId]);
-    const group = await dbGet('SELECT * FROM authorized_groups WHERE group_id = ?', [groupId]);
+    const group = await dbGet('SELECT * FROM authorized_groups WHERE group_id = ?', [groupIdNum]);
     const questions = await dbAll('SELECT * FROM questions WHERE exam_id = ?', [examId]);
     
     bot.sendMessage(chatId, `✅ Exam "${exam.name}" is now active in group "${group.group_name}" with ${questions.length} questions!`);
@@ -1263,7 +1265,7 @@ bot.on('callback_query', async (query) => {
     // Notify the group
     try {
       const menu = await getMainMenu(userId, true);
-      bot.sendMessage(groupId, 
+      bot.sendMessage(groupIdNum, 
         `📢 *New Exam Available!*\n\n` +
         `📝 ${exam.name}\n` +
         `❓ ${questions.length} questions\n\n` +
