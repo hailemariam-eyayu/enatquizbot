@@ -779,8 +779,83 @@ bot.on('callback_query', async (query) => {
   
   bot.answerCallbackQuery(query.id);
   
+  // Handle answer selection (with unique user ID in callback)
+  if (data.startsWith('ans_')) {
+    const parts = data.split('_');
+    const examId = parseInt(parts[1]);
+    const questionId = parseInt(parts[2]);
+    const selectedOption = parseInt(parts[3]);
+    const callbackUserId = parseInt(parts[4]);
+    
+    // Verify the callback is for this user
+    if (callbackUserId !== userId) {
+      return bot.answerCallbackQuery(query.id, {
+        text: '❌ This button is not for you.',
+        show_alert: true
+      });
+    }
+    
+    // Check if exam is still active
+    const exam = await dbGet('SELECT * FROM exams WHERE id = ? AND status = ?', [examId, 'active']);
+    
+    if (!exam) {
+      return bot.answerCallbackQuery(query.id, {
+        text: '❌ This exam has ended or is not active.',
+        show_alert: true
+      });
+    }
+    
+    // Check if already answered
+    const existing = await dbGet(
+      'SELECT * FROM user_answers WHERE user_id = ? AND question_id = ?',
+      [userId, questionId]
+    );
+    
+    if (existing) {
+      return bot.answerCallbackQuery(query.id, {
+        text: '⚠️ You have already answered this question.',
+        show_alert: true
+      });
+    }
+    
+    // Save answer
+    await dbRun(
+      'INSERT INTO user_answers (user_id, exam_id, question_id, selected_option) VALUES (?, ?, ?, ?)',
+      [userId, examId, questionId, selectedOption]
+    );
+    
+    // Show confirmation
+    bot.answerCallbackQuery(query.id, {
+      text: `✅ Answer recorded: ${String.fromCharCode(65 + selectedOption)}`,
+      show_alert: false
+    });
+    
+    // Edit message to show answer was recorded (remove buttons)
+    try {
+      await bot.editMessageReplyMarkup(
+        { inline_keyboard: [] },
+        {
+          chat_id: chatId,
+          message_id: query.message.message_id
+        }
+      );
+      
+      await bot.editMessageText(
+        `${query.message.text}\n\n✅ *Your answer: ${String.fromCharCode(65 + selectedOption)}*`,
+        {
+          chat_id: chatId,
+          message_id: query.message.message_id,
+          parse_mode: 'Markdown'
+        }
+      );
+    } catch (err) {
+      // Message might be too old to edit
+      console.error('Error editing message:', err);
+    }
+  }
+  
   // Add question
-  if (data.startsWith('add_question_')) {
+  else if (data.startsWith('add_question_')) {
     const examId = parseInt(data.split('_')[2]);
     userStates[userId] = { action: 'add_question', step: 'text', examId };
     bot.sendMessage(chatId, '❓ Enter question text:');
@@ -1390,17 +1465,24 @@ bot.on('callback_query', async (query) => {
     
     bot.sendMessage(chatId, `✅ Joined exam! Sending ${questions.length} questions...\n\n⚠️ Answer carefully - you won't see results until the exam ends.`);
     
-    // Send questions as REGULAR polls (not quiz mode) to hide answers
-    for (const q of questions) {
+    // Send questions as text with inline buttons (unique callback per user)
+    for (let i = 0; i < questions.length; i++) {
+      const q = questions[i];
       const options = JSON.parse(q.options);
-      const pollMsg = await bot.sendPoll(chatId, q.question_text, options, {
-        type: 'regular',  // Regular poll (not quiz)
-        is_anonymous: true,  // Hide who voted for what
-        allows_multiple_answers: false
-      });
       
-      // Store poll_id
-      await dbRun('UPDATE questions SET poll_id = ? WHERE id = ?', [pollMsg.poll.id, q.id]);
+      // Create inline keyboard with unique callback data including userId
+      const buttons = options.map((opt, idx) => [{
+        text: `${String.fromCharCode(65 + idx)}. ${opt}`,
+        callback_data: `ans_${examId}_${q.id}_${idx}_${userId}`
+      }]);
+      
+      await bot.sendMessage(chatId, 
+        `*Question ${i + 1}/${questions.length}*\n\n${q.question_text}`,
+        {
+          parse_mode: 'Markdown',
+          reply_markup: { inline_keyboard: buttons }
+        }
+      );
     }
   }
   
