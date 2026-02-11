@@ -1390,15 +1390,13 @@ bot.on('callback_query', async (query) => {
     
     bot.sendMessage(chatId, `✅ Joined exam! Sending ${questions.length} questions...\n\n⚠️ Answer carefully - you won't see results until the exam ends.`);
     
-    // Send questions as quiz polls
+    // Send questions as regular polls (not quiz mode to hide answers)
     for (const q of questions) {
       const options = JSON.parse(q.options);
       const pollMsg = await bot.sendPoll(chatId, q.question_text, options, {
-        type: 'quiz',
-        correct_option_id: q.correct_option,
+        type: 'regular',
         is_anonymous: true,
-        explanation: q.explanation || undefined,
-        open_period: 300  // 5 minutes to answer each question
+        allows_multiple_answers: false
       });
       
       // Store poll_id
