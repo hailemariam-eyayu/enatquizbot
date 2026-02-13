@@ -1741,7 +1741,14 @@ bot.on('callback_query', async (query) => {
 bot.on('poll_answer', async (pollAnswer) => {
   const userId = pollAnswer.user.id;
   const pollId = pollAnswer.poll_id;
-  const selectedOption = pollAnswer.option_ids[0];
+  const selectedOptions = pollAnswer.option_ids;
+  
+  // Ignore if user retracted their vote (empty array)
+  if (!selectedOptions || selectedOptions.length === 0) {
+    return;
+  }
+  
+  const selectedOption = selectedOptions[0];
   
   // Find question by poll_id
   const question = await dbGet('SELECT * FROM questions WHERE poll_id = ?', [pollId]);
@@ -1753,11 +1760,19 @@ bot.on('poll_answer', async (pollAnswer) => {
   
   if (!exam) return;
   
-  // Save answer
-  await dbRun(
-    'INSERT OR REPLACE INTO user_answers (user_id, exam_id, question_id, selected_option) VALUES (?, ?, ?, ?)',
-    [userId, question.exam_id, question.id, selectedOption]
+  // Check if user already answered this question
+  const existing = await dbGet(
+    'SELECT * FROM user_answers WHERE user_id = ? AND question_id = ?',
+    [userId, question.id]
   );
+  
+  // Only save if they haven't answered before (prevent vote changes)
+  if (!existing) {
+    await dbRun(
+      'INSERT INTO user_answers (user_id, exam_id, question_id, selected_option) VALUES (?, ?, ?, ?)',
+      [userId, question.exam_id, question.id, selectedOption]
+    );
+  }
 });
 
 // Handle document uploads
