@@ -777,6 +777,11 @@ bot.on('callback_query', async (query) => {
   const userId = query.from.id;
   const data = query.data;
   
+  // Log callback data for debugging edit questions
+  if (data.startsWith('edit_q')) {
+    console.log(`Edit question callback: ${data}`);
+  }
+  
   bot.answerCallbackQuery(query.id);
   
   // Add question
@@ -1120,10 +1125,15 @@ bot.on('callback_query', async (query) => {
       [{ text: '« Back', callback_data: `select_exam_edit_${question.exam_id}` }]
     ];
     
-    bot.sendMessage(chatId, message, {
-      parse_mode: 'Markdown',
-      reply_markup: { inline_keyboard: buttons }
-    });
+    try {
+      await bot.sendMessage(chatId, message, {
+        parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: buttons }
+      });
+    } catch (err) {
+      console.error('Error sending edit question message:', err);
+      bot.sendMessage(chatId, '❌ Error displaying question. Please try again.');
+    }
   }
   
   // Edit question text
