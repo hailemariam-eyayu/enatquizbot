@@ -1395,7 +1395,7 @@ bot.on('callback_query', async (query) => {
       const options = JSON.parse(q.options);
       const pollMsg = await bot.sendPoll(chatId, q.question_text, options, {
         type: 'regular',
-        is_anonymous: true,
+        is_anonymous: false,  // Must be false to receive poll_answer events
         allows_multiple_answers: false
       });
       
