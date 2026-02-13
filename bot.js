@@ -1739,39 +1739,59 @@ bot.on('callback_query', async (query) => {
 
 // Handle poll answers
 bot.on('poll_answer', async (pollAnswer) => {
-  const userId = pollAnswer.user.id;
-  const pollId = pollAnswer.poll_id;
-  const selectedOptions = pollAnswer.option_ids;
-  
-  // Ignore if user retracted their vote (empty array)
-  if (!selectedOptions || selectedOptions.length === 0) {
-    return;
-  }
-  
-  const selectedOption = selectedOptions[0];
-  
-  // Find question by poll_id
-  const question = await dbGet('SELECT * FROM questions WHERE poll_id = ?', [pollId]);
-  
-  if (!question) return;
-  
-  // Check if exam is still active
-  const exam = await dbGet('SELECT * FROM exams WHERE id = ? AND status = ?', [question.exam_id, 'active']);
-  
-  if (!exam) return;
-  
-  // Check if user already answered this question
-  const existing = await dbGet(
-    'SELECT * FROM user_answers WHERE user_id = ? AND question_id = ?',
-    [userId, question.id]
-  );
-  
-  // Only save if they haven't answered before (prevent vote changes)
-  if (!existing) {
+  try {
+    const userId = pollAnswer.user.id;
+    const pollId = pollAnswer.poll_id;
+    const selectedOptions = pollAnswer.option_ids;
+    
+    console.log(`Poll answer received: User ${userId}, Poll ${pollId}, Options:`, selectedOptions);
+    
+    // Ignore if user retracted their vote (empty array)
+    if (!selectedOptions || selectedOptions.length === 0) {
+      console.log('Vote retracted, ignoring');
+      return;
+    }
+    
+    const selectedOption = selectedOptions[0];
+    
+    // Find question by poll_id
+    const question = await dbGet('SELECT * FROM questions WHERE poll_id = ?', [pollId]);
+    
+    if (!question) {
+      console.log('Question not found for poll_id:', pollId);
+      return;
+    }
+    
+    console.log(`Found question ${question.id} for exam ${question.exam_id}`);
+    
+    // Check if exam is still active
+    const exam = await dbGet('SELECT * FROM exams WHERE id = ? AND status = ?', [question.exam_id, 'active']);
+    
+    if (!exam) {
+      console.log('Exam not active');
+      return;
+    }
+    
+    // Check if user already answered this question
+    const existing = await dbGet(
+      'SELECT * FROM user_answers WHERE user_id = ? AND question_id = ?',
+      [userId, question.id]
+    );
+    
+    if (existing) {
+      console.log('User already answered this question, ignoring');
+      return;
+    }
+    
+    // Save answer
     await dbRun(
       'INSERT INTO user_answers (user_id, exam_id, question_id, selected_option) VALUES (?, ?, ?, ?)',
       [userId, question.exam_id, question.id, selectedOption]
     );
+    
+    console.log(`Answer saved: User ${userId} selected option ${selectedOption} for question ${question.id}`);
+  } catch (err) {
+    console.error('Error handling poll answer:', err);
   }
 });
 
