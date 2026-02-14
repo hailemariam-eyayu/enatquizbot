@@ -113,20 +113,26 @@ const isSuperAdmin = (userId) => {
   return userId === SUPER_ADMIN_ID;
 };
 
-// Send message that auto-deletes after specified time
+// Send message that auto-deletes after specified time (only in groups)
 const sendAutoDeleteMessage = async (chatId, text, options = {}, deleteAfterMs = 300000) => {
   try {
     const sentMessage = await bot.sendMessage(chatId, text, options);
     
-    // Delete after specified time (default 5 minutes = 300000ms)
-    setTimeout(async () => {
-      try {
-        await bot.deleteMessage(chatId, sentMessage.message_id);
-      } catch (err) {
-        // Message might already be deleted or too old
-        console.error('Could not delete message:', err.message);
-      }
-    }, deleteAfterMs);
+    // Check if this is a group chat
+    const chat = await bot.getChat(chatId);
+    const isGroup = chat.type === 'group' || chat.type === 'supergroup';
+    
+    // Only auto-delete in groups, not in private chats
+    if (isGroup) {
+      setTimeout(async () => {
+        try {
+          await bot.deleteMessage(chatId, sentMessage.message_id);
+        } catch (err) {
+          // Message might already be deleted or too old
+          console.error('Could not delete message:', err.message);
+        }
+      }, deleteAfterMs);
+    }
     
     return sentMessage;
   } catch (err) {
