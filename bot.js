@@ -217,6 +217,26 @@ bot.onText(/\/menu/, async (msg) => {
   });
 });
 
+// Bot info command - shows current bot details
+bot.onText(/\/botinfo/, async (msg) => {
+  const chatId = msg.chat.id;
+  
+  try {
+    const botInfo = await bot.getMe();
+    const message = 
+      `🤖 *Bot Information*\n\n` +
+      `Name: ${botInfo.first_name}\n` +
+      `Username: @${botInfo.username}\n` +
+      `Bot ID: \`${botInfo.id}\`\n\n` +
+      `ℹ️ This bot can only delete messages sent by itself.\n` +
+      `Messages from other bots cannot be deleted.`;
+    
+    bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
+  } catch (err) {
+    bot.sendMessage(chatId, '❌ Error getting bot info.');
+  }
+});
+
 // Authorize group command (in group)
 bot.onText(/\/authorize/, async (msg) => {
   const chatId = msg.chat.id;
