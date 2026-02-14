@@ -113,6 +113,28 @@ const isSuperAdmin = (userId) => {
   return userId === SUPER_ADMIN_ID;
 };
 
+// Send message that auto-deletes after specified time
+const sendAutoDeleteMessage = async (chatId, text, options = {}, deleteAfterMs = 300000) => {
+  try {
+    const sentMessage = await bot.sendMessage(chatId, text, options);
+    
+    // Delete after specified time (default 5 minutes = 300000ms)
+    setTimeout(async () => {
+      try {
+        await bot.deleteMessage(chatId, sentMessage.message_id);
+      } catch (err) {
+        // Message might already be deleted or too old
+        console.error('Could not delete message:', err.message);
+      }
+    }, deleteAfterMs);
+    
+    return sentMessage;
+  } catch (err) {
+    console.error('Error sending auto-delete message:', err);
+    throw err;
+  }
+};
+
 const getMainMenu = async (userId, isGroup = false) => {
   if (isGroup) {
     // In groups, only show user options
@@ -278,7 +300,7 @@ bot.onText(/▶️ Start Exam/, async (msg) => {
   const exams = await dbAll('SELECT * FROM exams WHERE created_by = ? AND status = ?', [userId, 'pending']);
   
   if (exams.length === 0) {
-    return bot.sendMessage(chatId, '❌ No pending exams to start.');
+    return sendAutoDeleteMessage(chatId, '❌ No pending exams to start.');
   }
   
   const buttons = exams.map(exam => [{
@@ -303,7 +325,7 @@ bot.onText(/⏹️ End Exam/, async (msg) => {
   const exams = await dbAll('SELECT * FROM exams WHERE created_by = ? AND status = ?', [userId, 'active']);
   
   if (exams.length === 0) {
-    return bot.sendMessage(chatId, '❌ No active exams to end.');
+    return sendAutoDeleteMessage(chatId, '❌ No active exams to end.');
   }
   
   const buttons = exams.map(exam => [{
@@ -329,7 +351,7 @@ bot.onText(/📊 View Results/, async (msg) => {
   const exams = await dbAll('SELECT * FROM exams WHERE status = ? ORDER BY created_at DESC', ['ended']);
   
   if (exams.length === 0) {
-    return bot.sendMessage(chatId, '❌ No ended exams yet.');
+    return sendAutoDeleteMessage(chatId, '❌ No ended exams yet.');
   }
   
   const buttons = exams.map(exam => {
@@ -357,7 +379,7 @@ bot.onText(/📚 Active Exams/, async (msg) => {
   const exams = await dbAll('SELECT * FROM exams WHERE status = ?', ['active']);
   
   if (exams.length === 0) {
-    return bot.sendMessage(chatId, '📚 No active exams at the moment.');
+    return sendAutoDeleteMessage(chatId, '📚 No active exams at the moment.');
   }
   
   const buttons = exams.map(exam => [{
@@ -381,7 +403,7 @@ bot.onText(/📈 My Results/, async (msg) => {
   );
   
   if (exams.length === 0) {
-    return bot.sendMessage(chatId, '📈 No completed exams yet.');
+    return sendAutoDeleteMessage(chatId, '📈 No completed exams yet.');
   }
   
   const buttons = exams.map(exam => [{
@@ -969,7 +991,7 @@ bot.on('callback_query', async (query) => {
     const exams = await dbAll('SELECT * FROM exams WHERE status = ? AND (group_id = ? OR group_id IS NULL)', ['active', chatId]);
     
     if (exams.length === 0) {
-      return bot.sendMessage(chatId, '📚 No active exams at the moment.');
+      return sendAutoDeleteMessage(chatId, '📚 No active exams at the moment.');
     }
     
     const buttons = exams.map(exam => [{
@@ -1383,13 +1405,13 @@ bot.on('callback_query', async (query) => {
     );
     
     if (alreadyJoined) {
-      return bot.sendMessage(chatId, '❌ You have already joined this exam. You can only take each exam once.');
+      return sendAutoDeleteMessage(chatId, '❌ You have already joined this exam. You can only take each exam once.');
     }
     
     const questions = await dbAll('SELECT * FROM questions WHERE exam_id = ?', [examId]);
     
     if (questions.length === 0) {
-      return bot.sendMessage(chatId, '❌ This exam has no questions yet. Please wait for the admin to add questions.');
+      return sendAutoDeleteMessage(chatId, '❌ This exam has no questions yet. Please wait for the admin to add questions.');
     }
     
     // Add participant
