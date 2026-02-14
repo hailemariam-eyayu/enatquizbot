@@ -43,7 +43,7 @@ The bot now works in **private groups** where you control who can access exams.
 
 ### **Delete Bot Messages**
 
-Admins can clean up bot messages in groups:
+Bot admins OR Telegram group admins can clean up bot messages in groups:
 
 **Command:** `/cleanup` or `/cleanup 500`
 
@@ -51,7 +51,9 @@ Admins can clean up bot messages in groups:
 - Default: checks last 200 messages
 - Optional: specify number (e.g., `/cleanup 500` checks last 500)
 - Only works in groups
-- Only admins can use it
+- Can be used by:
+  - ✅ Bot admins (configured in bot)
+  - ✅ Telegram group admins/creators
 - Auto-deletes status messages
 
 **Important Notes:**

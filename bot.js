@@ -266,7 +266,20 @@ bot.onText(/\/cleanup( \d+)?/, async (msg, match) => {
     return bot.sendMessage(chatId, '❌ This command only works in groups.');
   }
   
-  if (!(await isAdmin(userId))) {
+  // Check if user is bot admin OR Telegram group admin
+  const isBotAdmin = await isAdmin(userId);
+  let isGroupAdmin = false;
+  
+  if (!isBotAdmin) {
+    try {
+      const member = await bot.getChatMember(chatId, userId);
+      isGroupAdmin = member.status === 'administrator' || member.status === 'creator';
+    } catch (err) {
+      console.error('Error checking group admin status:', err);
+    }
+  }
+  
+  if (!isBotAdmin && !isGroupAdmin) {
     return bot.sendMessage(chatId, '❌ Only admins can use this command.');
   }
   
