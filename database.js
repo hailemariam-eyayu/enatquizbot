@@ -89,6 +89,16 @@ async function initDatabase() {
     )
   `);
 
+  db.run(`
+    CREATE TABLE IF NOT EXISTS bot_messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      chat_id INTEGER NOT NULL,
+      message_id INTEGER NOT NULL,
+      sent_at INTEGER DEFAULT (strftime('%s', 'now')),
+      UNIQUE(chat_id, message_id)
+    )
+  `);
+
   return db;
 }
 
