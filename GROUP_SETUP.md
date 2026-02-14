@@ -39,6 +39,23 @@ The bot now works in **private groups** where you control who can access exams.
 
 ---
 
+## 🧹 Cleanup Commands
+
+### **Delete Bot Messages**
+
+Admins can clean up bot messages in groups:
+
+**Command:** `/cleanup`
+
+- Deletes up to 100 recent bot messages
+- Only works in groups
+- Only admins can use it
+- Auto-deletes status messages
+
+**Note:** Telegram only allows deleting messages less than 48 hours old.
+
+---
+
 ## 📝 How It Works
 
 ### **For Admins (Private Chat with Bot):**

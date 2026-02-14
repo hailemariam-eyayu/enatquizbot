@@ -256,6 +256,86 @@ bot.onText(/\/authorize/, async (msg) => {
   );
 });
 
+// Cleanup bot messages in group (Admin only)
+bot.onText(/\/cleanup/, async (msg) => {
+  const chatId = msg.chat.id;
+  const userId = msg.from.id;
+  const isGroup = msg.chat.type === 'group' || msg.chat.type === 'supergroup';
+  
+  if (!isGroup) {
+    return bot.sendMessage(chatId, '❌ This command only works in groups.');
+  }
+  
+  if (!(await isAdmin(userId))) {
+    return bot.sendMessage(chatId, '❌ Only admins can use this command.');
+  }
+  
+  const statusMsg = await bot.sendMessage(chatId, '🧹 Cleaning up bot messages...');
+  
+  try {
+    let deletedCount = 0;
+    let failedCount = 0;
+    
+    // Get bot info to identify bot messages
+    const botInfo = await bot.getMe();
+    const botId = botInfo.id;
+    
+    // Try to delete messages (Telegram limits: can only delete messages less than 48 hours old)
+    // We'll try to delete the last 100 messages from the bot
+    const messageId = msg.message_id;
+    
+    // Delete messages going backwards from current message
+    for (let i = 1; i <= 100; i++) {
+      try {
+        await bot.deleteMessage(chatId, messageId - i);
+        deletedCount++;
+        // Small delay to avoid rate limiting
+        await new Promise(resolve => setTimeout(resolve, 50));
+      } catch (err) {
+        failedCount++;
+        // Stop if we hit too many failures (likely reached old messages or non-bot messages)
+        if (failedCount > 20) break;
+      }
+    }
+    
+    // Delete the status message
+    await bot.deleteMessage(chatId, statusMsg.message_id);
+    
+    // Send final status that auto-deletes
+    const finalMsg = await bot.sendMessage(chatId, 
+      `✅ Cleanup complete!\n\n` +
+      `🗑️ Deleted: ${deletedCount} messages\n` +
+      `⏱️ This message will auto-delete in 10 seconds.`
+    );
+    
+    // Delete the cleanup command message
+    try {
+      await bot.deleteMessage(chatId, msg.message_id);
+    } catch (err) {
+      // Might not have permission
+    }
+    
+    // Delete final status after 10 seconds
+    setTimeout(async () => {
+      try {
+        await bot.deleteMessage(chatId, finalMsg.message_id);
+      } catch (err) {
+        console.error('Could not delete final message:', err.message);
+      }
+    }, 10000);
+    
+  } catch (err) {
+    console.error('Error during cleanup:', err);
+    await bot.editMessageText(
+      '❌ Error during cleanup. Make sure the bot has delete message permissions.',
+      {
+        chat_id: chatId,
+        message_id: statusMsg.message_id
+      }
+    );
+  }
+});
+
 // Create Exam (Admin only)
 bot.onText(/📝 Create Exam/, async (msg) => {
   const chatId = msg.chat.id;
