@@ -24,6 +24,8 @@ async function initDatabase() {
       status TEXT DEFAULT 'pending',
       created_by INTEGER NOT NULL,
       group_id INTEGER,
+      num_winners INTEGER DEFAULT 0,
+      tie_break_note TEXT,
       created_at INTEGER DEFAULT (strftime('%s', 'now'))
     )
   `);
@@ -65,6 +67,15 @@ async function initDatabase() {
       joined_at INTEGER DEFAULT (strftime('%s', 'now')),
       UNIQUE(user_id, exam_id),
       FOREIGN KEY (exam_id) REFERENCES exams(id)
+    )
+  `);
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS user_profiles (
+      user_id INTEGER PRIMARY KEY,
+      branch TEXT DEFAULT 'Enat',
+      phone TEXT,
+      updated_at INTEGER DEFAULT (strftime('%s', 'now'))
     )
   `);
 
