@@ -253,51 +253,20 @@ async function submitExamAnswers(userId, examId, chatId) {
     }
   }
   
-  // Calculate results
-  let correct = 0;
-  let wrong = 0;
-  let resultDetails = '';
-  
-  for (let i = 0; i < questions.length; i++) {
-    const q = questions[i];
-    const options = JSON.parse(q.options);
-    const userAnswer = userAnswers[q.id];
-    
-    if (userAnswer !== null && userAnswer !== undefined) {
-      const isCorrect = userAnswer === q.correct_option;
-      if (isCorrect) {
-        correct++;
-      } else {
-        wrong++;
-      }
-      
-      const userLetter = String.fromCharCode(65 + userAnswer);
-      const correctLetter = String.fromCharCode(65 + q.correct_option);
-      
-      resultDetails += `\nQ${i + 1}: Your answer ${userLetter} `;
-      resultDetails += isCorrect ? '✅ Correct!' : `❌ Wrong (Correct: ${correctLetter})`;
-      
-      if (q.explanation && !isCorrect) {
-        resultDetails += `\n💡 ${q.explanation}`;
-      }
-    } else {
-      wrong++;
-      const correctLetter = String.fromCharCode(65 + q.correct_option);
-      resultDetails += `\nQ${i + 1}: Not answered ❌ (Correct: ${correctLetter})`;
+  // Count answered questions
+  let answeredCount = 0;
+  questions.forEach(q => {
+    if (userAnswers[q.id] !== null && userAnswers[q.id] !== undefined) {
+      answeredCount++;
     }
-  }
+  });
   
-  const total = questions.length;
-  const percentage = ((correct / total) * 100).toFixed(1);
-  
-  let message = `✅ *Answers Submitted!*\n\n`;
-  message += `📊 *Your Score: ${correct}/${total} (${percentage}%)*\n`;
-  message += `✅ Correct: ${correct}\n`;
-  message += `❌ Wrong: ${wrong}\n`;
-  message += `\n━━━━━━━━━━━━━━━━━━━━━━\n`;
-  message += `*Detailed Results:*${resultDetails}\n`;
-  message += `\n━━━━━━━━━━━━━━━━━━━━━━\n`;
-  message += `Results will be announced when the exam ends.`;
+  // Simple confirmation message (no scores shown)
+  let message = `✅ *Answers Submitted Successfully!*\n\n`;
+  message += `📝 You answered ${answeredCount}/${questions.length} questions\n\n`;
+  message += `━━━━━━━━━━━━━━━━━━━━━━\n`;
+  message += `Your results will be announced when the exam ends.\n\n`;
+  message += `Thank you for participating! 🎓`;
   
   bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
   
