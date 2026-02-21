@@ -1290,6 +1290,8 @@ bot.on('message', async (msg) => {
   
   // Set winners flow
   if (state.action === 'set_winners') {
+    console.log('Set winners flow - step:', state.step, 'text:', msg.text);
+    
     if (state.step === 'count') {
       const numWinners = parseInt(msg.text);
       
@@ -1297,15 +1299,17 @@ bot.on('message', async (msg) => {
         return bot.sendMessage(chatId, '❌ Invalid number. Please enter 0 or a positive number:');
       }
       
+      console.log('Number of winners:', numWinners);
       state.numWinners = numWinners;
       
       if (numWinners === 0) {
         // No winners, proceed to target selection
-        state.step = 'target';
+        console.log('No winners, showing target selection');
         showTargetSelection(chatId, userId, state.examId);
         delete userStates[userId];
       } else {
         // Ask for tie-break contact
+        console.log('Asking for tie-break contact');
         state.step = 'contact';
         bot.sendMessage(chatId, 
           '📞 *Tie-Break Contact*\n\n' +
@@ -1316,6 +1320,7 @@ bot.on('message', async (msg) => {
       }
     } else if (state.step === 'contact') {
       const contact = msg.text.trim();
+      console.log('Saving contact:', contact, 'for exam:', state.examId);
       
       // Save winner settings to exam
       await dbRun(
@@ -1323,6 +1328,7 @@ bot.on('message', async (msg) => {
         [state.numWinners, contact, state.examId]
       );
       
+      console.log('Showing target selection after saving contact');
       // Proceed to target selection
       showTargetSelection(chatId, userId, state.examId);
       delete userStates[userId];
