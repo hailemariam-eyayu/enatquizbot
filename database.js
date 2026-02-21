@@ -25,7 +25,7 @@ async function initDatabase() {
       created_by INTEGER NOT NULL,
       group_id INTEGER,
       num_winners INTEGER DEFAULT 0,
-      tie_break_note TEXT,
+      tie_break_contact TEXT,
       created_at INTEGER DEFAULT (strftime('%s', 'now'))
     )
   `);
@@ -51,6 +51,7 @@ async function initDatabase() {
       question_id INTEGER NOT NULL,
       selected_option INTEGER NOT NULL,
       answered_at INTEGER DEFAULT (strftime('%s', 'now')),
+      submitted_at INTEGER,
       UNIQUE(user_id, exam_id, question_id),
       FOREIGN KEY (exam_id) REFERENCES exams(id),
       FOREIGN KEY (question_id) REFERENCES questions(id)

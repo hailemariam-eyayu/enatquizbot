@@ -53,29 +53,44 @@ async function cleanupMessages() {
     
     console.log('\n🗑️ Starting deletion process...\n');
     
-    // Try deleting messages going backwards
-    for (let i = 1; i <= MESSAGE_RANGE; i++) {
+    // Strategy: Try deleting from current message backwards AND from message 1 upwards
+    // This catches both recent and old messages
+    
+    // Part 1: Go backwards from current message
+    console.log('📍 Part 1: Checking recent messages (backwards from current)...');
+    for (let i = 1; i <= Math.min(MESSAGE_RANGE / 2, lastMessageId); i++) {
       const messageId = lastMessageId - i;
       
       try {
         await bot.deleteMessage(GROUP_ID, messageId);
         deletedCount++;
         
-        // Show progress every 50 deletions
-        if (deletedCount % 50 === 0) {
+        if (deletedCount % 10 === 0) {
           console.log(`✅ Deleted ${deletedCount} messages so far...`);
         }
         
-        // Small delay to avoid rate limiting
         await new Promise(resolve => setTimeout(resolve, 50));
         
       } catch (err) {
         failedCount++;
+      }
+    }
+    
+    console.log(`\n📍 Part 2: Checking older messages (from message 1 upwards)...`);
+    // Part 2: Go forwards from message 1 to catch old messages
+    for (let messageId = 1; messageId <= Math.min(MESSAGE_RANGE / 2, lastMessageId); messageId++) {
+      try {
+        await bot.deleteMessage(GROUP_ID, messageId);
+        deletedCount++;
         
-        // Show progress every 500 failures
-        if (failedCount % 500 === 0) {
-          console.log(`⏭️  Skipped ${failedCount} messages (not from bot or too old)...`);
+        if (deletedCount % 10 === 0) {
+          console.log(`✅ Deleted ${deletedCount} messages so far...`);
         }
+        
+        await new Promise(resolve => setTimeout(resolve, 50));
+        
+      } catch (err) {
+        failedCount++;
       }
     }
     

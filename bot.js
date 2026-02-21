@@ -99,6 +99,10 @@ const SUPER_ADMIN_ID = ADMIN_IDS[0]; // First admin in .env is super admin
 // User state management
 const userStates = {};
 
+// In-memory storage for exam answers (before submission)
+const userExamAnswers = {};
+// Structure: userExamAnswers[userId] = { examId, answers: { questionId: optionIndex }, reviewMessageId }
+
 // Helper functions
 const isAdmin = async (userId) => {
   // Check if user is in .env ADMIN_IDS (super admin)
@@ -164,11 +168,302 @@ const getMainMenu = async (userId, isGroup = false) => {
         ...(superAdmin ? [[{ text: '👥 Manage Admins' }, { text: '👥 Manage Groups' }]] : [])
       ]
     : [
-        [{ text: '📚 Active Exams' }, { text: '📈 My Results' }]
+        [{ text: '📚 Active Exams' }, { text: '📈 My Results' }],
+        [{ text: '👤 My Profile' }]
       ];
   
   return { keyboard, resize_keyboard: true };
 };
+
+// Format question message with inline buttons
+function formatQuestionMessage(questionNum, total, questionText, options, selectedOption = null) {
+  let message = `━━━━━━━━━━━━━━━━━━━━━━\n`;
+  message += `📝 *Question ${questionNum}/${total}*\n\n`;
+  message += `${questionText}\n\n`;
+  
+  options.forEach((opt, idx) => {
+    const letter = String.fromCharCode(65 + idx); // A, B, C, D...
+    message += `${letter}. ${opt}\n`;
+  });
+  
+  return message;
+}
+
+// Create inline buttons for question options
+function createOptionButtons(examId, questionId, options, selectedOption, userId) {
+  const buttons = [];
+  const row = [];
+  
+  options.forEach((opt, idx) => {
+    const letter = String.fromCharCode(65 + idx);
+    const isSelected = selectedOption === idx;
+    const buttonText = isSelected ? `✅ ${letter}` : letter;
+    
+    row.push({
+      text: buttonText,
+      callback_data: `ans_${examId}_${questionId}_${idx}_${userId}`
+    });
+  });
+  
+  buttons.push(row);
+  return buttons;
+}
+
+// Format review message with all answers
+function formatReviewMessage(examId, questions, userAnswers, userId) {
+  let message = `━━━━━━━━━━━━━━━━━━━━━━\n`;
+  message += `📋 *Review Your Answers*\n\n`;
+  
+  let answeredCount = 0;
+  questions.forEach((q, idx) => {
+    const answer = userAnswers[q.id];
+    if (answer !== null && answer !== undefined) {
+      const letter = String.fromCharCode(65 + answer);
+      message += `Q${idx + 1}: ✅ ${letter}\n`;
+      answeredCount++;
+    } else {
+      message += `Q${idx + 1}: ⚠️ Not answered\n`;
+    }
+  });
+  
+  message += `\n*Progress: ${answeredCount}/${questions.length} answered*\n`;
+  message += `━━━━━━━━━━━━━━━━━━━━━━`;
+  
+  return message;
+}
+
+// Submit exam answers and show results
+async function submitExamAnswers(userId, examId, chatId) {
+  if (!userExamAnswers[userId]) {
+    return bot.sendMessage(chatId, '❌ No exam data found. Please rejoin the exam.');
+  }
+  
+  const questions = await dbAll('SELECT * FROM questions WHERE exam_id = ? ORDER BY id ASC', [examId]);
+  const userAnswers = userExamAnswers[userId].answers;
+  const submittedAt = Math.floor(Date.now() / 1000);
+  
+  // Save all answers to database
+  for (const q of questions) {
+    const selectedOption = userAnswers[q.id];
+    if (selectedOption !== null && selectedOption !== undefined) {
+      await dbRun(
+        'INSERT OR REPLACE INTO user_answers (user_id, exam_id, question_id, selected_option, submitted_at) VALUES (?, ?, ?, ?, ?)',
+        [userId, examId, q.id, selectedOption, submittedAt]
+      );
+    }
+  }
+  
+  // Calculate results
+  let correct = 0;
+  let wrong = 0;
+  let resultDetails = '';
+  
+  for (let i = 0; i < questions.length; i++) {
+    const q = questions[i];
+    const options = JSON.parse(q.options);
+    const userAnswer = userAnswers[q.id];
+    
+    if (userAnswer !== null && userAnswer !== undefined) {
+      const isCorrect = userAnswer === q.correct_option;
+      if (isCorrect) {
+        correct++;
+      } else {
+        wrong++;
+      }
+      
+      const userLetter = String.fromCharCode(65 + userAnswer);
+      const correctLetter = String.fromCharCode(65 + q.correct_option);
+      
+      resultDetails += `\nQ${i + 1}: Your answer ${userLetter} `;
+      resultDetails += isCorrect ? '✅ Correct!' : `❌ Wrong (Correct: ${correctLetter})`;
+      
+      if (q.explanation && !isCorrect) {
+        resultDetails += `\n💡 ${q.explanation}`;
+      }
+    } else {
+      wrong++;
+      const correctLetter = String.fromCharCode(65 + q.correct_option);
+      resultDetails += `\nQ${i + 1}: Not answered ❌ (Correct: ${correctLetter})`;
+    }
+  }
+  
+  const total = questions.length;
+  const percentage = ((correct / total) * 100).toFixed(1);
+  
+  let message = `✅ *Answers Submitted!*\n\n`;
+  message += `📊 *Your Score: ${correct}/${total} (${percentage}%)*\n`;
+  message += `✅ Correct: ${correct}\n`;
+  message += `❌ Wrong: ${wrong}\n`;
+  message += `\n━━━━━━━━━━━━━━━━━━━━━━\n`;
+  message += `*Detailed Results:*${resultDetails}\n`;
+  message += `\n━━━━━━━━━━━━━━━━━━━━━━\n`;
+  message += `Results will be announced when the exam ends.`;
+  
+  bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
+  
+  // Clear user's exam data
+  delete userExamAnswers[userId];
+}
+
+// Show target selection for exam
+async function showTargetSelection(chatId, userId, examId) {
+  const groups = await dbAll('SELECT * FROM authorized_groups ORDER BY group_name ASC');
+  
+  let message = '🎯 *Select where to publish this exam:*\n\n';
+  message += 'Choose destination:\n';
+  
+  const buttons = [];
+  
+  // Add "Bot Users" option
+  buttons.push([{ text: '🤖 Bot Users (Private Chat)', callback_data: `target_bot_${examId}` }]);
+  
+  // Add each group
+  groups.forEach(group => {
+    buttons.push([{ 
+      text: `👥 ${group.group_name || 'Unknown Group'}`, 
+      callback_data: `target_group_${examId}_${group.group_id}` 
+    }]);
+  });
+  
+  // Add "All" option
+  buttons.push([{ text: '🌐 All (Bot + All Groups)', callback_data: `target_all_${examId}` }]);
+  buttons.push([{ text: '« Back', callback_data: 'back_to_menu' }]);
+  
+  bot.sendMessage(chatId, message, {
+    parse_mode: 'Markdown',
+    reply_markup: { inline_keyboard: buttons }
+  });
+}
+
+// Announce winners
+async function announceWinners(examId, exam) {
+  const participants = await dbAll('SELECT * FROM participants WHERE exam_id = ?', [examId]);
+  const questions = await dbAll('SELECT * FROM questions WHERE exam_id = ?', [examId]);
+  
+  if (participants.length === 0) return;
+  
+  // Calculate scores for all participants
+  let results = [];
+  
+  for (const p of participants) {
+    const answers = await dbAll(
+      'SELECT * FROM user_answers WHERE user_id = ? AND exam_id = ? ORDER BY answered_at ASC',
+      [p.user_id, examId]
+    );
+    
+    let correct = 0;
+    let firstAnswerTime = null;
+    
+    for (const ans of answers) {
+      const q = questions.find(q => q.id === ans.question_id);
+      if (q && q.correct_option === ans.selected_option) correct++;
+      if (!firstAnswerTime || ans.answered_at < firstAnswerTime) {
+        firstAnswerTime = ans.answered_at;
+      }
+    }
+    
+    // Get user profile
+    const profile = await dbGet('SELECT * FROM user_profiles WHERE user_id = ?', [p.user_id]);
+    
+    results.push({
+      name: p.first_name || p.username || 'User',
+      userId: p.user_id,
+      username: p.username,
+      correct,
+      total: questions.length,
+      percentage: ((correct / questions.length) * 100).toFixed(1),
+      firstAnswerTime: firstAnswerTime || 0,
+      branch: profile?.branch || 'Not set',
+      phone: profile?.phone || 'Not set'
+    });
+  }
+  
+  // Sort by score (desc), then by first answer time (asc)
+  results.sort((a, b) => {
+    if (b.correct !== a.correct) return b.correct - a.correct;
+    return a.firstAnswerTime - b.firstAnswerTime;
+  });
+  
+  // Get top scorers
+  const numWinners = exam.num_winners;
+  const topScore = results[0].correct;
+  
+  // Find all with top score
+  const topScorers = results.filter(r => r.correct === topScore);
+  
+  // Build announcement message
+  let message = `🏆 *EXAM RESULTS: "${exam.name}"*\n\n`;
+  message += `📊 Total Participants: ${results.length}\n`;
+  message += `❓ Total Questions: ${questions.length}\n\n`;
+  message += `━━━━━━━━━━━━━━━━━━━━━━\n\n`;
+  
+  const medals = ['🥇', '🥈', '🥉'];
+  
+  if (topScorers.length <= numWinners) {
+    // Exact match or fewer - announce all top scorers
+    message += `*🏆 WINNERS*\n\n`;
+    
+    topScorers.forEach((r, idx) => {
+      const medal = medals[idx] || `${idx + 1}.`;
+      message += `${medal} *${r.name}* - ${r.correct}/${r.total} (${r.percentage}%)\n`;
+      message += `   Branch: ${r.branch} | Phone: ${r.phone}\n\n`;
+    });
+    
+    // If we need more winners, show next tier
+    if (topScorers.length < numWinners && results.length > topScorers.length) {
+      const nextScore = results[topScorers.length].correct;
+      const nextTier = results.filter(r => r.correct === nextScore);
+      const needed = numWinners - topScorers.length;
+      
+      message += `━━━━━━━━━━━━━━━━━━━━━━\n\n`;
+      message += `*🥈 NEXT TIER - ${nextScore}/${questions.length} (${((nextScore/questions.length)*100).toFixed(1)}%)*\n\n`;
+      
+      nextTier.forEach((r, idx) => {
+        message += `${topScorers.length + idx + 1}. *${r.name}*\n`;
+        message += `   Branch: ${r.branch} | Phone: ${r.phone}\n\n`;
+      });
+      
+      if (nextTier.length > needed) {
+        message += `━━━━━━━━━━━━━━━━━━━━━━\n\n`;
+        message += `⚠️ *Note:* We need ${numWinners} winner(s). The top ${topScorers.length} participant(s) have the highest score. `;
+        message += `To complete the ${numWinners} winners, we need to select ${needed} person(s) from the ${nextTier.length} participants who scored ${nextScore}/${questions.length}.\n\n`;
+        message += `📞 Please send your activation code to: *${exam.tie_break_note}*`;
+      }
+    }
+  } else {
+    // More people tied at top score than winners needed
+    message += `*🏆 TOP SCORERS - ${topScore}/${questions.length} (${((topScore/questions.length)*100).toFixed(1)}%)*\n\n`;
+    
+    topScorers.forEach((r, idx) => {
+      message += `${idx + 1}. *${r.name}*\n`;
+      message += `   Branch: ${r.branch} | Phone: ${r.phone}\n\n`;
+    });
+    
+    message += `━━━━━━━━━━━━━━━━━━━━━━\n\n`;
+    message += `⚠️ *Note:* We need ${numWinners} winner(s) but we have ${topScorers.length} participants with equal scores (${topScore}/${questions.length}).\n\n`;
+    message += `📞 Please send your activation code to: *${exam.tie_break_note}*`;
+  }
+  
+  // Send to appropriate targets
+  if (exam.group_id) {
+    // Specific group
+    try {
+      await bot.sendMessage(exam.group_id, message, { parse_mode: 'Markdown' });
+    } catch (err) {
+      console.error('Error sending winner announcement to group:', err);
+    }
+  } else {
+    // All groups or bot users
+    const groups = await dbAll('SELECT * FROM authorized_groups');
+    for (const group of groups) {
+      try {
+        await bot.sendMessage(group.group_id, message, { parse_mode: 'Markdown' });
+      } catch (err) {
+        console.error(`Error sending to group ${group.group_id}:`, err);
+      }
+    }
+  }
+}
 
 // Start command
 bot.onText(/\/start/, async (msg) => {
@@ -522,7 +817,7 @@ bot.onText(/📈 My Results/, async (msg) => {
   );
   
   if (exams.length === 0) {
-    return sendAutoDeleteMessage(chatId, '📈 No completed exams yet.');
+    return bot.sendMessage(chatId, '📈 No completed exams yet.');
   }
   
   const buttons = exams.map(exam => [{
@@ -531,6 +826,56 @@ bot.onText(/📈 My Results/, async (msg) => {
   }]);
   
   bot.sendMessage(chatId, '📈 Select exam to view your results:', {
+    reply_markup: { inline_keyboard: buttons }
+  });
+});
+
+// My Profile (User)
+bot.onText(/👤 My Profile/, async (msg) => {
+  const chatId = msg.chat.id;
+  const userId = msg.from.id;
+  
+  // Get or create profile
+  let profile = await dbGet('SELECT * FROM user_profiles WHERE user_id = ?', [userId]);
+  
+  if (!profile) {
+    // Create default profile
+    await dbRun(
+      'INSERT INTO user_profiles (user_id, branch, phone) VALUES (?, ?, ?)',
+      [userId, 'Enat', null]
+    );
+    profile = { user_id: userId, branch: 'Enat', phone: null };
+  }
+  
+  // Try to get phone from Telegram
+  let telegramPhone = null;
+  try {
+    const chat = await bot.getChat(userId);
+    if (chat.phone_number) {
+      telegramPhone = chat.phone_number;
+    }
+  } catch (err) {
+    // Phone not available
+  }
+  
+  const displayPhone = profile.phone || telegramPhone || 'Not set';
+  
+  let message = `👤 *Your Profile*\n\n`;
+  message += `🏢 Branch: ${profile.branch}\n`;
+  message += `📱 Phone: ${displayPhone}\n`;
+  
+  if (telegramPhone && !profile.phone) {
+    message += `\n💡 We detected your Telegram phone: ${telegramPhone}`;
+  }
+  
+  const buttons = [
+    [{ text: '🏢 Update Branch', callback_data: 'update_branch' }],
+    [{ text: '📱 Update Phone', callback_data: 'update_phone' }],
+    [{ text: '« Back', callback_data: 'back_to_menu' }]
+  ];
+  
+  bot.sendMessage(chatId, message, {
+    parse_mode: 'Markdown',
     reply_markup: { inline_keyboard: buttons }
   });
 });
@@ -910,6 +1255,79 @@ bot.on('message', async (msg) => {
     
     delete userStates[userId];
   }
+  
+  // Update branch flow
+  if (state.action === 'update_branch') {
+    const branch = msg.text.trim();
+    
+    await dbRun(
+      'INSERT OR REPLACE INTO user_profiles (user_id, branch, phone, updated_at) VALUES (?, ?, (SELECT phone FROM user_profiles WHERE user_id = ?), strftime("%s", "now"))',
+      [userId, branch, userId]
+    );
+    
+    bot.sendMessage(chatId, `✅ Branch updated to: ${branch}`, {
+      reply_markup: await getMainMenu(userId)
+    });
+    
+    delete userStates[userId];
+  }
+  
+  // Update phone flow
+  if (state.action === 'update_phone') {
+    const phone = msg.text.trim();
+    
+    await dbRun(
+      'INSERT OR REPLACE INTO user_profiles (user_id, branch, phone, updated_at) VALUES (?, (SELECT COALESCE((SELECT branch FROM user_profiles WHERE user_id = ?), "Enat")), ?, strftime("%s", "now"))',
+      [userId, userId, phone]
+    );
+    
+    bot.sendMessage(chatId, `✅ Phone updated to: ${phone}`, {
+      reply_markup: await getMainMenu(userId)
+    });
+    
+    delete userStates[userId];
+  }
+  
+  // Set winners flow
+  if (state.action === 'set_winners') {
+    if (state.step === 'count') {
+      const numWinners = parseInt(msg.text);
+      
+      if (isNaN(numWinners) || numWinners < 0) {
+        return bot.sendMessage(chatId, '❌ Invalid number. Please enter 0 or a positive number:');
+      }
+      
+      state.numWinners = numWinners;
+      
+      if (numWinners === 0) {
+        // No winners, proceed to target selection
+        state.step = 'target';
+        showTargetSelection(chatId, userId, state.examId);
+        delete userStates[userId];
+      } else {
+        // Ask for tie-break contact
+        state.step = 'contact';
+        bot.sendMessage(chatId, 
+          '📞 *Tie-Break Contact*\n\n' +
+          'Enter contact for tie-breaking (e.g., @username, phone, or email):\n\n' +
+          '_This will be shown if there are tied scores._',
+          { parse_mode: 'Markdown' }
+        );
+      }
+    } else if (state.step === 'contact') {
+      const contact = msg.text.trim();
+      
+      // Save winner settings to exam
+      await dbRun(
+        'UPDATE exams SET num_winners = ?, tie_break_note = ? WHERE id = ?',
+        [state.numWinners, contact, state.examId]
+      );
+      
+      // Proceed to target selection
+      showTargetSelection(chatId, userId, state.examId);
+      delete userStates[userId];
+    }
+  }
 });
 
 // Callback query handler
@@ -925,8 +1343,158 @@ bot.on('callback_query', async (query) => {
   
   bot.answerCallbackQuery(query.id);
   
+  // Handle answer selection
+  if (data.startsWith('ans_')) {
+    const parts = data.split('_');
+    const examId = parseInt(parts[1]);
+    const questionId = parseInt(parts[2]);
+    const selectedOption = parseInt(parts[3]);
+    const targetUserId = parseInt(parts[4]);
+    
+    // Verify this button is for this user
+    if (targetUserId !== userId) {
+      return bot.answerCallbackQuery(query.id, {
+        text: '❌ This button is not for you.',
+        show_alert: true
+      });
+    }
+    
+    // Check if user has exam data
+    if (!userExamAnswers[userId] || userExamAnswers[userId].examId !== examId) {
+      return bot.answerCallbackQuery(query.id, {
+        text: '❌ Exam session expired. Please rejoin the exam.',
+        show_alert: true
+      });
+    }
+    
+    // Store the answer
+    userExamAnswers[userId].answers[questionId] = selectedOption;
+    
+    // Update the question message buttons
+    try {
+      const question = await dbGet('SELECT * FROM questions WHERE id = ?', [questionId]);
+      const options = JSON.parse(question.options);
+      const buttons = createOptionButtons(examId, questionId, options, selectedOption, userId);
+      
+      await bot.editMessageReplyMarkup(
+        { inline_keyboard: buttons },
+        {
+          chat_id: chatId,
+          message_id: query.message.message_id
+        }
+      );
+    } catch (err) {
+      console.error('Error updating question buttons:', err);
+    }
+    
+    // Update review message
+    try {
+      const questions = await dbAll('SELECT * FROM questions WHERE exam_id = ? ORDER BY id ASC', [examId]);
+      const reviewMessage = formatReviewMessage(examId, questions, userExamAnswers[userId].answers, userId);
+      const submitButton = [[{ 
+        text: '✅ Submit All Answers', 
+        callback_data: `submit_${examId}_${userId}` 
+      }]];
+      
+      await bot.editMessageText(reviewMessage, {
+        chat_id: chatId,
+        message_id: userExamAnswers[userId].reviewMessageId,
+        parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: submitButton }
+      });
+    } catch (err) {
+      console.error('Error updating review message:', err);
+    }
+    
+    bot.answerCallbackQuery(query.id, {
+      text: `✅ Answer ${String.fromCharCode(65 + selectedOption)} selected`,
+      show_alert: false
+    });
+  }
+  
+  // Handle submit
+  else if (data.startsWith('submit_')) {
+    const parts = data.split('_');
+    const examId = parseInt(parts[1]);
+    const targetUserId = parseInt(parts[2]);
+    
+    // Verify this button is for this user
+    if (targetUserId !== userId) {
+      return bot.answerCallbackQuery(query.id, {
+        text: '❌ This button is not for you.',
+        show_alert: true
+      });
+    }
+    
+    // Check if user has exam data
+    if (!userExamAnswers[userId] || userExamAnswers[userId].examId !== examId) {
+      return bot.answerCallbackQuery(query.id, {
+        text: '❌ Exam session expired. Please rejoin the exam.',
+        show_alert: true
+      });
+    }
+    
+    const questions = await dbAll('SELECT * FROM questions WHERE exam_id = ? ORDER BY id ASC', [examId]);
+    const userAnswers = userExamAnswers[userId].answers;
+    
+    // Check for unanswered questions
+    const unanswered = [];
+    questions.forEach((q, idx) => {
+      if (userAnswers[q.id] === null || userAnswers[q.id] === undefined) {
+        unanswered.push(idx + 1);
+      }
+    });
+    
+    // If there are unanswered questions, ask for confirmation
+    if (unanswered.length > 0) {
+      const confirmButtons = [
+        [
+          { text: '✅ Yes, Submit', callback_data: `confirm_submit_${examId}_${userId}` },
+          { text: '❌ No, Go Back', callback_data: `cancel_submit_${examId}_${userId}` }
+        ]
+      ];
+      
+      bot.sendMessage(chatId, 
+        `⚠️ *Warning*\n\nYou have ${unanswered.length} unanswered question(s): Q${unanswered.join(', Q')}\n\nSubmit anyway?`,
+        {
+          parse_mode: 'Markdown',
+          reply_markup: { inline_keyboard: confirmButtons }
+        }
+      );
+      return;
+    }
+    
+    // All answered, proceed with submission
+    await submitExamAnswers(userId, examId, chatId);
+  }
+  
+  // Handle confirm submit
+  else if (data.startsWith('confirm_submit_')) {
+    const parts = data.split('_');
+    const examId = parseInt(parts[2]);
+    const targetUserId = parseInt(parts[3]);
+    
+    if (targetUserId !== userId) {
+      return bot.answerCallbackQuery(query.id, {
+        text: '❌ This button is not for you.',
+        show_alert: true
+      });
+    }
+    
+    await submitExamAnswers(userId, examId, chatId);
+  }
+  
+  // Handle cancel submit
+  else if (data.startsWith('cancel_submit_')) {
+    bot.deleteMessage(chatId, query.message.message_id);
+    bot.answerCallbackQuery(query.id, {
+      text: '✅ Cancelled. Continue answering questions.',
+      show_alert: false
+    });
+  }
+  
   // Add question
-  if (data.startsWith('add_question_')) {
+  else if (data.startsWith('add_question_')) {
     const examId = parseInt(data.split('_')[2]);
     userStates[userId] = { action: 'add_question', step: 'text', examId };
     bot.sendMessage(chatId, '❓ Enter question text:');
@@ -992,6 +1560,18 @@ bot.on('callback_query', async (query) => {
     bot.sendMessage(chatId, `✅ Exam "${exam.name}" and all related data deleted successfully!`, {
       reply_markup: getMainMenu(userId)
     });
+  }
+  
+  // Update branch
+  else if (data === 'update_branch') {
+    userStates[userId] = { action: 'update_branch' };
+    bot.sendMessage(chatId, '🏢 Enter your branch name:');
+  }
+  
+  // Update phone
+  else if (data === 'update_phone') {
+    userStates[userId] = { action: 'update_phone' };
+    bot.sendMessage(chatId, '📱 Enter your phone number (with country code, e.g., +251912345678):');
   }
   
   // Back to menu
@@ -1376,7 +1956,7 @@ bot.on('callback_query', async (query) => {
     bot.sendMessage(chatId, '💡 Enter explanation (or "-" to skip):');
   }
   
-  // Start exam - select target
+  // Start exam - ask for winner settings
   else if (data.startsWith('start_exam_')) {
     const examId = parseInt(data.split('_')[2]);
     
@@ -1386,33 +1966,14 @@ bot.on('callback_query', async (query) => {
       return bot.sendMessage(chatId, '❌ Cannot start exam without questions! Add questions first.');
     }
     
-    // Show target selection (groups + bot users)
-    const groups = await dbAll('SELECT * FROM authorized_groups ORDER BY group_name ASC');
-    
-    let message = '🎯 *Select where to publish this exam:*\n\n';
-    message += 'Choose one or more destinations:\n';
-    
-    const buttons = [];
-    
-    // Add "Bot Users" option
-    buttons.push([{ text: '🤖 Bot Users (Private Chat)', callback_data: `target_bot_${examId}` }]);
-    
-    // Add each group
-    groups.forEach(group => {
-      buttons.push([{ 
-        text: `👥 ${group.group_name || 'Unknown Group'}`, 
-        callback_data: `target_group_${examId}_${group.group_id}` 
-      }]);
-    });
-    
-    // Add "All" option
-    buttons.push([{ text: '🌐 All (Bot + All Groups)', callback_data: `target_all_${examId}` }]);
-    buttons.push([{ text: '« Back', callback_data: 'back_to_menu' }]);
-    
-    bot.sendMessage(chatId, message, {
-      parse_mode: 'Markdown',
-      reply_markup: { inline_keyboard: buttons }
-    });
+    // Ask for number of winners
+    userStates[userId] = { action: 'set_winners', examId, step: 'count' };
+    bot.sendMessage(chatId, 
+      '🏆 *Winner Settings*\n\n' +
+      'How many winners should be announced when the exam ends?\n\n' +
+      'Enter a number (0 = no winner announcement):',
+      { parse_mode: 'Markdown' }
+    );
   }
   
   // Target: Bot users
@@ -1501,6 +2062,11 @@ bot.on('callback_query', async (query) => {
     
     bot.sendMessage(chatId, `✅ Exam "${exam.name}" has ended!`);
     
+    // Announce winners if configured
+    if (exam.num_winners && exam.num_winners > 0) {
+      await announceWinners(examId, exam);
+    }
+    
     // Notify participants
     const participants = await dbAll('SELECT DISTINCT user_id FROM participants WHERE exam_id = ?', [examId]);
     participants.forEach(p => {
@@ -1524,13 +2090,13 @@ bot.on('callback_query', async (query) => {
     );
     
     if (alreadyJoined) {
-      return sendAutoDeleteMessage(chatId, '❌ You have already joined this exam. You can only take each exam once.');
+      return bot.sendMessage(chatId, '❌ You have already joined this exam. You can only take each exam once.');
     }
     
-    const questions = await dbAll('SELECT * FROM questions WHERE exam_id = ?', [examId]);
+    const questions = await dbAll('SELECT * FROM questions WHERE exam_id = ? ORDER BY id ASC', [examId]);
     
     if (questions.length === 0) {
-      return sendAutoDeleteMessage(chatId, '❌ This exam has no questions yet. Please wait for the admin to add questions.');
+      return bot.sendMessage(chatId, '❌ This exam has no questions yet. Please wait for the admin to add questions.');
     }
     
     // Add participant
@@ -1539,19 +2105,59 @@ bot.on('callback_query', async (query) => {
       [userId, examId, query.from.username || null, query.from.first_name || null]
     );
     
-    bot.sendMessage(chatId, `✅ Joined exam! Sending ${questions.length} questions...\n\n⚠️ Answer carefully - you won't see results until the exam ends.`);
+    // Initialize user's answer storage
+    userExamAnswers[userId] = {
+      examId: examId,
+      answers: {},
+      questionMessageIds: []
+    };
     
-    // Send questions as regular polls (not quiz mode to hide answers)
-    for (const q of questions) {
+    // Initialize all answers as null
+    questions.forEach(q => {
+      userExamAnswers[userId].answers[q.id] = null;
+    });
+    
+    bot.sendMessage(chatId, `✅ Joined exam! Loading ${questions.length} questions...\n\n⚠️ Review your answers and click Submit when ready.`);
+    
+    // Send all questions with inline buttons
+    for (let i = 0; i < questions.length; i++) {
+      const q = questions[i];
       const options = JSON.parse(q.options);
-      const pollMsg = await bot.sendPoll(chatId, q.question_text, options, {
-        type: 'regular',
-        is_anonymous: false,  // Must be false to receive poll_answer events
-        allows_multiple_answers: false
+      
+      const message = formatQuestionMessage(i + 1, questions.length, q.question_text, options);
+      const buttons = createOptionButtons(examId, q.id, options, null, userId);
+      
+      try {
+        const sentMsg = await bot.sendMessage(chatId, message, {
+          parse_mode: 'Markdown',
+          reply_markup: { inline_keyboard: buttons }
+        });
+        
+        userExamAnswers[userId].questionMessageIds.push({
+          questionId: q.id,
+          messageId: sentMsg.message_id
+        });
+      } catch (err) {
+        console.error('Error sending question:', err);
+      }
+    }
+    
+    // Send review/submit message
+    const reviewMessage = formatReviewMessage(examId, questions, userExamAnswers[userId].answers, userId);
+    const submitButton = [[{ 
+      text: '✅ Submit All Answers', 
+      callback_data: `submit_${examId}_${userId}` 
+    }]];
+    
+    try {
+      const reviewMsg = await bot.sendMessage(chatId, reviewMessage, {
+        parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: submitButton }
       });
       
-      // Store poll_id
-      await dbRun('UPDATE questions SET poll_id = ? WHERE id = ?', [pollMsg.poll.id, q.id]);
+      userExamAnswers[userId].reviewMessageId = reviewMsg.message_id;
+    } catch (err) {
+      console.error('Error sending review message:', err);
     }
   }
   
@@ -1888,7 +2494,8 @@ bot.on('callback_query', async (query) => {
   }
 });
 
-// Handle poll answers
+// Handle poll answers - DISABLED (now using button-based system)
+/*
 bot.on('poll_answer', async (pollAnswer) => {
   try {
     const userId = pollAnswer.user.id;
@@ -1931,6 +2538,7 @@ bot.on('poll_answer', async (pollAnswer) => {
     console.error('Error handling poll answer:', err);
   }
 });
+*/
 
 // Handle document uploads
 bot.on('document', async (msg) => {
