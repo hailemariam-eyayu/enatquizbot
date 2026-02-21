@@ -1319,7 +1319,7 @@ bot.on('message', async (msg) => {
       
       // Save winner settings to exam
       await dbRun(
-        'UPDATE exams SET num_winners = ?, tie_break_note = ? WHERE id = ?',
+        'UPDATE exams SET num_winners = ?, tie_break_contact = ? WHERE id = ?',
         [state.numWinners, contact, state.examId]
       );
       
