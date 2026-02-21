@@ -301,8 +301,15 @@ async function submitExamAnswers(userId, examId, chatId) {
   
   bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
   
-  // Clear user's exam data
-  delete userExamAnswers[userId];
+  // Mark as submitted (don't delete yet, in case they try to change answers)
+  userExamAnswers[userId].submitted = true;
+  
+  // Delete after 5 minutes to free memory
+  setTimeout(() => {
+    if (userExamAnswers[userId]) {
+      delete userExamAnswers[userId];
+    }
+  }, 300000); // 5 minutes
 }
 
 // Show target selection for exam
@@ -1384,27 +1391,29 @@ bot.on('callback_query', async (query) => {
       });
     }
     
-    // Store the answer
-    userExamAnswers[userId].answers[questionId] = selectedOption;
-    
-    // Update the question message buttons
-    try {
-      const question = await dbGet('SELECT * FROM questions WHERE id = ?', [questionId]);
-      const options = JSON.parse(question.options);
-      const buttons = createOptionButtons(examId, questionId, options, selectedOption, userId);
-      
-      await bot.editMessageReplyMarkup(
-        { inline_keyboard: buttons },
-        {
-          chat_id: chatId,
-          message_id: query.message.message_id
-        }
-      );
-    } catch (err) {
-      console.error('Error updating question buttons:', err);
+    // Check if already submitted
+    if (userExamAnswers[userId].submitted) {
+      return bot.answerCallbackQuery(query.id, {
+        text: '❌ You have already submitted your answers!',
+        show_alert: true
+      });
     }
     
-    // Update review message
+    // Store the answer
+    const previousAnswer = userExamAnswers[userId].answers[questionId];
+    userExamAnswers[userId].answers[questionId] = selectedOption;
+    
+    const letter = String.fromCharCode(65 + selectedOption);
+    
+    // Show popup confirmation (don't edit message)
+    bot.answerCallbackQuery(query.id, {
+      text: previousAnswer === selectedOption 
+        ? `✅ Answer ${letter} confirmed` 
+        : `✅ Answer changed to ${letter}`,
+      show_alert: true
+    });
+    
+    // Update review message only
     try {
       const questions = await dbAll('SELECT * FROM questions WHERE exam_id = ? ORDER BY id ASC', [examId]);
       const reviewMessage = formatReviewMessage(examId, questions, userExamAnswers[userId].answers, userId);
@@ -1422,11 +1431,6 @@ bot.on('callback_query', async (query) => {
     } catch (err) {
       console.error('Error updating review message:', err);
     }
-    
-    bot.answerCallbackQuery(query.id, {
-      text: `✅ Answer ${String.fromCharCode(65 + selectedOption)} selected`,
-      show_alert: false
-    });
   }
   
   // Handle submit
@@ -2126,7 +2130,8 @@ bot.on('callback_query', async (query) => {
     userExamAnswers[userId] = {
       examId: examId,
       answers: {},
-      questionMessageIds: []
+      questionMessageIds: [],
+      submitted: false
     };
     
     // Initialize all answers as null
