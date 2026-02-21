@@ -1031,12 +1031,18 @@ bot.onText(/👥 Manage Admins/, async (msg) => {
 
 // Handle text messages (state-based)
 bot.on('message', async (msg) => {
+  // Debug: Log all incoming messages
+  if (msg.text) {
+    console.log(`Message received from ${msg.from.id}: "${msg.text}"`);
+  }
+  
   if (!msg.text || msg.text.startsWith('/') || msg.text.startsWith('📝') || 
       msg.text.startsWith('📋') || msg.text.startsWith('▶️') || 
       msg.text.startsWith('⏹️') || msg.text.startsWith('📊') ||
       msg.text.startsWith('📚') || msg.text.startsWith('📈') ||
       msg.text.startsWith('✏️') || msg.text.startsWith('🗑️') ||
       msg.text.startsWith('📤')) {
+    console.log('Message filtered out');
     return;
   }
   
@@ -1044,7 +1050,12 @@ bot.on('message', async (msg) => {
   const userId = msg.from.id;
   const state = userStates[userId];
   
-  if (!state) return;
+  console.log(`User ${userId} state:`, state);
+  
+  if (!state) {
+    console.log('No state found, returning');
+    return;
+  }
   
   // Create exam flow
   if (state.action === 'create_exam') {
