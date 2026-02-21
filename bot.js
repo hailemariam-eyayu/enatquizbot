@@ -2104,6 +2104,10 @@ bot.on('callback_query', async (query) => {
   else if (data.startsWith('join_exam_')) {
     const examId = parseInt(data.split('_')[2]);
     
+    // Detect if this is from a group
+    const isGroup = query.message.chat.type === 'group' || query.message.chat.type === 'supergroup';
+    const targetChatId = isGroup ? userId : chatId; // Send to private chat if from group
+    
     // Check if user already joined this exam
     const alreadyJoined = await dbGet(
       'SELECT * FROM participants WHERE user_id = ? AND exam_id = ?',
@@ -2111,13 +2115,13 @@ bot.on('callback_query', async (query) => {
     );
     
     if (alreadyJoined) {
-      return bot.sendMessage(chatId, '❌ You have already joined this exam. You can only take each exam once.');
+      return bot.sendMessage(targetChatId, '❌ You have already joined this exam. You can only take each exam once.');
     }
     
     const questions = await dbAll('SELECT * FROM questions WHERE exam_id = ? ORDER BY id ASC', [examId]);
     
     if (questions.length === 0) {
-      return bot.sendMessage(chatId, '❌ This exam has no questions yet. Please wait for the admin to add questions.');
+      return bot.sendMessage(targetChatId, '❌ This exam has no questions yet. Please wait for the admin to add questions.');
     }
     
     // Add participant
@@ -2139,18 +2143,23 @@ bot.on('callback_query', async (query) => {
       userExamAnswers[userId].answers[q.id] = null;
     });
     
-    bot.sendMessage(chatId, `✅ Joined exam! Loading ${questions.length} questions...\n\n⚠️ Review your answers and click Submit when ready.`);
+    // If from group, notify in group and send to private
+    if (isGroup) {
+      bot.sendMessage(chatId, `✅ @${query.from.username || query.from.first_name} joined the exam! Check your private chat with the bot.`);
+    }
     
-    // Send all questions with inline buttons
-    for (let i = 0; i < questions.length; i++) {
-      const q = questions[i];
-      const options = JSON.parse(q.options);
+    try {
+      await bot.sendMessage(targetChatId, `✅ Joined exam! Loading ${questions.length} questions...\n\n⚠️ Review your answers and click Submit when ready.`);
       
-      const message = formatQuestionMessage(i + 1, questions.length, q.question_text, options);
-      const buttons = createOptionButtons(examId, q.id, options, null, userId);
-      
-      try {
-        const sentMsg = await bot.sendMessage(chatId, message, {
+      // Send all questions with inline buttons
+      for (let i = 0; i < questions.length; i++) {
+        const q = questions[i];
+        const options = JSON.parse(q.options);
+        
+        const message = formatQuestionMessage(i + 1, questions.length, q.question_text, options);
+        const buttons = createOptionButtons(examId, q.id, options, null, userId);
+        
+        const sentMsg = await bot.sendMessage(targetChatId, message, {
           parse_mode: 'Markdown',
           reply_markup: { inline_keyboard: buttons }
         });
@@ -2159,27 +2168,33 @@ bot.on('callback_query', async (query) => {
           questionId: q.id,
           messageId: sentMsg.message_id
         });
-      } catch (err) {
-        console.error('Error sending question:', err);
       }
-    }
-    
-    // Send review/submit message
-    const reviewMessage = formatReviewMessage(examId, questions, userExamAnswers[userId].answers, userId);
-    const submitButton = [[{ 
-      text: '✅ Submit All Answers', 
-      callback_data: `submit_${examId}_${userId}` 
-    }]];
-    
-    try {
-      const reviewMsg = await bot.sendMessage(chatId, reviewMessage, {
+      
+      // Send review/submit message
+      const reviewMessage = formatReviewMessage(examId, questions, userExamAnswers[userId].answers, userId);
+      const submitButton = [[{ 
+        text: '✅ Submit All Answers', 
+        callback_data: `submit_${examId}_${userId}` 
+      }]];
+      
+      const reviewMsg = await bot.sendMessage(targetChatId, reviewMessage, {
         parse_mode: 'Markdown',
         reply_markup: { inline_keyboard: submitButton }
       });
       
       userExamAnswers[userId].reviewMessageId = reviewMsg.message_id;
     } catch (err) {
-      console.error('Error sending review message:', err);
+      console.error('Error sending exam to user:', err);
+      
+      // If error (user hasn't started bot), notify in group
+      if (isGroup) {
+        bot.sendMessage(chatId, 
+          `⚠️ @${query.from.username || query.from.first_name}, I couldn't send you the exam questions.\n\n` +
+          `Please start a private chat with me first by clicking here: @${(await bot.getMe()).username}`
+        );
+      } else {
+        bot.sendMessage(targetChatId, '❌ Error loading exam. Please try again.');
+      }
     }
   }
   
